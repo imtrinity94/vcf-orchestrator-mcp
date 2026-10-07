@@ -111,7 +111,7 @@ Claude Code: `claude mcp add vcf-orchestrator -e VRO_URL=https://auto.vmw.lab -e
 
 ## Releasing
 
-Pushing a `v*` tag publishes to npm through `.github/workflows/publish.yml`. This needs an `NPM_TOKEN` repository secret holding an npm automation / granular token with publish rights:
+Pushing a `v*` tag publishes to npm through `.github/workflows/publish.yml`. It uses npm trusted publishing (OIDC), so no token is stored anywhere. To enable it once, open the package on npmjs.com → Settings → Trusted Publisher and add GitHub Actions with repo `imtrinity94/vcf-orchestrator-mcp` and workflow `publish.yml`. Then release with:
 
 ```bash
 npm version patch && git push --follow-tags
