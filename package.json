@@ -1,0 +1,54 @@
+{
+  "name": "vcf-orchestrator-mcp",
+  "version": "0.1.0",
+  "description": "MCP server for VCF Operations Orchestrator (vRO) 9.x — embedded in VCF Automation or standalone. Spec-driven: full REST API access plus workflow/action/script tools.",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "mcp",
+    "vro",
+    "vrealize-orchestrator",
+    "vcf",
+    "orchestrator",
+    "vmware",
+    "broadcom",
+    "claude"
+  ],
+  "author": "imtrinity94",
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.1",
+    "undici": "^6.29.0",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.4",
+    "typescript": "^7.0.2"
+  },
+  "type": "module",
+  "bin": {
+    "vcf-orchestrator-mcp": "dist/index.js"
+  },
+  "files": [
+    "dist",
+    "spec",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=18.17"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/imtrinity94/vcf-orchestrator-mcp.git"
+  },
+  "homepage": "https://github.com/imtrinity94/vcf-orchestrator-mcp#readme",
+  "bugs": {
+    "url": "https://github.com/imtrinity94/vcf-orchestrator-mcp/issues"
+  },
+  "mcpName": "io.github.imtrinity94/vcf-orchestrator-mcp"
+}
