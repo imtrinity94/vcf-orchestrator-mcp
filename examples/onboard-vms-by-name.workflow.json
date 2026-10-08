@@ -2,14 +2,8 @@
  "folder": "cloudblogger/Onboarding",
  "name": "Onboard VMs by Name",
  "description": "Onboards unmanaged vCenter VMs into a VCF Automation 9.1 VM Apps org project, one deployment per VM (no blueprint). dryRun=true builds the plan without executing it.",
- "version": "1.1.0",
+ "version": "1.2.0",
  "inputs": [
-  {
-   "name": "vraHostName",
-   "type": "string",
-   "description": "VCF Automation host name in the Orchestrator inventory",
-   "default": "Default"
-  },
   {
    "name": "projectName",
    "type": "string",
@@ -76,7 +70,15 @@
  "attributes": [
   {
    "name": "vraHost",
-   "type": "VRA:Host"
+   "type": "VRA:Host",
+   "description": "VCF Automation plug-in host (Default: https://auto.vmw.lab)",
+   "default": "bkOUV0RSTouF-ac_Tgff0Q"
+  },
+  {
+   "name": "vcHost",
+   "type": "VC:SdkConnection",
+   "description": "vCenter vcf-m-vc.vmw.lab (inventory connection, for vCenter-side steps)",
+   "default": "vcf-m-vc.vmw.lab"
   },
   {
    "name": "projectId",
@@ -98,20 +100,19 @@
  "steps": [
   {
    "id": "resolve",
-   "name": "Resolve host and IDs",
+   "name": "Resolve IDs",
    "in": [
-    "vraHostName",
+    "vraHost",
     "projectName",
     "cloudAccountName",
     "planName"
    ],
    "out": [
-    "vraHost",
     "projectId",
     "endpointId",
     "effectivePlanName"
    ],
-   "script": "var mod = System.getModule(\"com.cloudblogger.onboarding\");\n\nvraHost = mod.getVraHostByName(vraHostName);\n\nif (!projectName || !cloudAccountName) throw \"projectName and cloudAccountName are required\";\n\nprojectId  = mod.getProjectId(vraHost, projectName);\nendpointId = mod.getCloudAccountId(vraHost, cloudAccountName);\n\nfunction p2(n) { return (n < 10 ? \"0\" : \"\") + n; }\nif (!planName || String(planName).trim() === \"\") {\n    var d = new Date();\n    effectivePlanName = \"vRO-Onboard-\" + d.getFullYear() + p2(d.getMonth() + 1) + p2(d.getDate()) +\n        \"-\" + p2(d.getHours()) + p2(d.getMinutes()) + p2(d.getSeconds());\n} else {\n    effectivePlanName = String(planName).trim();\n}\nSystem.log(\"Plan name: \" + effectivePlanName);"
+   "script": "var mod = System.getModule(\"com.cloudblogger.onboarding\");\n\nif (!vraHost) throw \"Workflow variable vraHost is not set - pick the VCF Automation host in the workflow Variables tab\";\n\nif (!projectName || !cloudAccountName) throw \"projectName and cloudAccountName are required\";\n\nprojectId  = mod.getProjectId(vraHost, projectName);\nendpointId = mod.getCloudAccountId(vraHost, cloudAccountName);\n\nfunction p2(n) { return (n < 10 ? \"0\" : \"\") + n; }\nif (!planName || String(planName).trim() === \"\") {\n    var d = new Date();\n    effectivePlanName = \"vRO-Onboard-\" + d.getFullYear() + p2(d.getMonth() + 1) + p2(d.getDate()) +\n        \"-\" + p2(d.getHours()) + p2(d.getMinutes()) + p2(d.getSeconds());\n} else {\n    effectivePlanName = String(planName).trim();\n}\nSystem.log(\"Plan name: \" + effectivePlanName);"
   },
   {
    "id": "plan",

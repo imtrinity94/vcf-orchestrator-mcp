@@ -61,6 +61,12 @@ const attr = (s: string) =>
 function encodeDefault(type: string, v: unknown): string | undefined {
   if (v === undefined || v === null) return undefined;
   const t = type.toLowerCase();
+  // Plug-in (SDK) object reference, e.g. VRA:Host / VC:SdkConnection — value is the inventory id (or {id})
+  if (type.includes(":") && !t.startsWith("array/")) {
+    const id = typeof v === "object" ? (v as any).id : v;
+    if (id === undefined || id === null || id === "") return undefined;
+    return cdata(`dunes://service.dunes.ch/CustomSDKObject?id='${String(id)}'&dunesName='${type}'`);
+  }
   if (t === "string" || t === "securestring") return `${cdata(String(v))}`;
   if (t === "number") return cdata(String(Number(v)));
   if (t === "boolean") return cdata(v === true || v === "true" ? "true" : "false");
@@ -205,15 +211,28 @@ export function buildWorkflowXml(spec: WfSpec, opts: { id: string; categoryId?: 
 
   const paramXml = (p: WfParam) =>
     `<param name="${attr(p.name)}" type="${attr(p.type)}">${p.description ? `<description>${cdata(p.description)}</description>` : ""}</param>`;
-  const attribXml = (p: WfParam) => {
-    const v = encodeDefault(p.type, p.default);
-    return (
-      `<attrib name="${attr(p.name)}" type="${attr(p.type)}" read-only="false">` +
-      (v ? `<value encoded="n">${v}</value>` : "") +
-      (p.description ? `<description>${cdata(p.description)}</description>` : "") +
-      `</attrib>`
-    );
+  const esc = (v: unknown) => String(v).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  /** Attribute value in the VCFO 9.x schema format (<ns2:string>, <ns2:sdk-object .../>, ...) */
+  const valueXml = (type: string, v: unknown): string => {
+    if (v === undefined || v === null) return "";
+    const t = type.toLowerCase();
+    if (type.includes(":") && !t.startsWith("array/")) {
+      const id = typeof v === "object" ? (v as any).id : v;
+      return id ? `<ns2:sdk-object type="${attr(type)}" id="${attr(String(id))}"/>` : "";
+    }
+    if (t === "string" || t === "securestring") return `<ns2:string>${esc(v)}</ns2:string>`;
+    if (t === "number") return `<ns2:number>${Number(v)}</ns2:number>`;
+    if (t === "boolean") return `<ns2:boolean>${v === true || v === "true"}</ns2:boolean>`;
+    if (t === "array/string" && Array.isArray(v)) {
+      return `<ns2:array>${v.map((x) => `<ns2:string>${esc(x)}</ns2:string>`).join("")}</ns2:array>`;
+    }
+    return "";
   };
+  const attribXml = (p: WfParam) =>
+    `<attrib name="${attr(p.name)}" type="${attr(p.type)}" read-only="false">` +
+    valueXml(p.type, p.default) +
+    (p.description ? `<description>${cdata(p.description)}</description>` : "") +
+    `</attrib>`;
 
   // Input defaults via presentation (honoured by the generated input form)
   const pParams = (spec.inputs ?? [])
