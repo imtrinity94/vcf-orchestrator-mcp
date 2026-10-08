@@ -670,7 +670,7 @@ function categoryLinks(body: any, rel: string): { id: string; name: string }[] {
     .filter((c: any) => c.id && (!c.type || c.type === "WorkflowCategory"));
 }
 
-/** Ensure a folder path like "cloudblogger/Onboarding" exists (walks the tree from the roots); returns the leaf id */
+/** Ensure a folder path like "mbcom/Onboarding" exists (walks the tree from the roots); returns the leaf id */
 async function ensureWorkflowFolder(folderPath: string): Promise<string> {
   const parts = folderPath.split("/").map((p) => p.trim()).filter(Boolean);
   if (!parts.length) throw new Error("folder must be a path like 'Lab/Onboarding'");
@@ -730,7 +730,7 @@ server.registerTool(
     description:
       "Create or update (upsert by name + folder) an Orchestrator workflow from a compact spec: inputs, outputs, attributes and ordered steps (script tasks, action calls, decisions, ends). Builds the schema, creates the folder path if missing, and validates. Scripts must be plain ES5. Steps flow in array order unless next/ifTrue/ifFalse say otherwise. Set dryRun to only return the generated XML.",
     inputSchema: {
-      folder: z.string().describe("Workflow folder path, e.g. 'cloudblogger/Onboarding' (created if missing)"),
+      folder: z.string().describe("Workflow folder path, e.g. 'mbcom/Onboarding' (created if missing)"),
       name: z.string(),
       description: z.string().optional(),
       version: z.string().optional(),
