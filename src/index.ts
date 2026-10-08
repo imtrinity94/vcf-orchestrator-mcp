@@ -260,7 +260,7 @@ async function saveAction(a: {
 
 // ---------------------------------------------------------------- server
 
-const server = new McpServer({ name: "vcf-orchestrator", version: "0.2.2" });
+const server = new McpServer({ name: "vcf-orchestrator", version: "0.2.3" });
 
 const jsonObj = z.record(z.string(), z.any());
 
@@ -422,13 +422,15 @@ server.registerTool(
         conditions: a.name ? `name~${a.name}` : undefined,
         maxResult: a.limit ?? 50,
         startIndex: a.startIndex ?? 0,
-        queryCount: true,
       },
     });
     const f = flattenInventory(r.body);
+    const items = f.items ?? [];
     return {
-      total: f.total,
-      items: (f.items ?? []).map((i: any) => ({
+      // VCFO 9.x returns total=-1 (no queryCount support); report what came back
+      total: typeof f.total === "number" && f.total >= 0 ? f.total : items.length,
+      ...(f["last-item-token"] ? { more: "more results exist - raise limit or use startIndex" } : {}),
+      items: items.map((i: any) => ({
         id: i.id,
         name: i.name,
         category: i.categoryName,
