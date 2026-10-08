@@ -18,6 +18,8 @@ It is spec-driven: the bundled OpenAPI file (`spec/vcfoo-9.0.0.json`, 303 operat
 | `vro_find_actions` / `vro_get_action` | Find actions, read script / inputs / return type |
 | `vro_run_action` | Execute an action, returns plain JSON result + logs |
 | `vro_save_action` | Create or update (upsert) an action |
+| `vro_save_workflow` | Create/update a workflow from a compact spec (inputs, outputs, attributes, script/action/decision/end steps); creates the folder path |
+| `vro_delete_workflow` | Delete a workflow by id or name |
 | `vro_run_script` | Run an ad-hoc ES5 snippet via a temp action (auto-deleted) — for prototyping |
 
 Inputs are converted automatically from plain JSON to Orchestrator types: `string`, `number`, `boolean`, `Date`, `Properties`, `Array/x`, `SecureString`, and SDK objects. For SDK objects, pass the id string or `{type,id}`, e.g. `VC:VirtualMachine`. Outputs are converted back to plain JSON.

@@ -6,6 +6,7 @@ import { loadConfig } from "./config.js";
 import { OrchestratorClient } from "./client.js";
 import { SpecIndex } from "./spec.js";
 import { buildParameters, fromWire, paramsToObject, type ParamDef } from "./values.js";
+import { buildWorkflowXml, validateSpec, type WfSpec } from "./workflow.js";
 
 const cfg = loadConfig();
 const spec = new SpecIndex(cfg.specPath);
@@ -259,7 +260,7 @@ async function saveAction(a: {
 
 // ---------------------------------------------------------------- server
 
-const server = new McpServer({ name: "vcf-orchestrator", version: "0.1.1" });
+const server = new McpServer({ name: "vcf-orchestrator", version: "0.2.0" });
 
 const jsonObj = z.record(z.string(), z.any());
 
@@ -652,6 +653,139 @@ server.registerTool(
 );
 
 // ---------------------------------------------------------------- start
+
+// ---- workflow authoring
+
+async function listWorkflowCategories(): Promise<{ id: string; name: string; path: string }[]> {
+  const r = await vro.call("GET", "/categories", { query: { categoryType: "WorkflowCategory" } });
+  const b: any = r.body;
+  const flat = flattenInventory(b);
+  const raw: any[] = flat?.items ?? b?.categories ?? b?.category ?? (Array.isArray(b) ? b : []);
+  return raw.map((c: any) => ({ id: c.id, name: c.name, path: String(c.path ?? c.name ?? "") }));
+}
+
+/** Ensure a folder path like "Library/cloudblogger/Onboarding" exists; returns the leaf category id */
+async function ensureWorkflowFolder(folderPath: string): Promise<string> {
+  const parts = folderPath.split("/").map((p) => p.trim()).filter(Boolean);
+  if (!parts.length) throw new Error("folder must be a path like 'Lab/Onboarding'");
+  let cats = await listWorkflowCategories();
+  const norm = (p: string) => p.replace(/^\/+|\/+$/g, "").replace(/\s*\/\s*/g, "/").toLowerCase();
+  let parentId: string | undefined;
+  for (let i = 0; i < parts.length; i++) {
+    const want = norm(parts.slice(0, i + 1).join("/"));
+    let hit = cats.find((c) => norm(c.path) === want);
+    if (!hit && i === 0) hit = cats.find((c) => norm(c.name) === want && !norm(c.path).includes("/"));
+    if (!hit) {
+      const body = { categoryType: "WorkflowCategory", name: parts[i], description: "Created by vcf-orchestrator MCP" };
+      const r = parentId
+        ? await vro.call("POST", `/categories/${enc(parentId)}`, { body: { ...body, "parent-category-id": parentId } })
+        : await vro.call("POST", "/categories", { body });
+      const b: any = r.body;
+      const id = b?.id ?? r.headers["location"]?.replace(/\/+$/, "").split("/").pop();
+      if (!id) throw new Error(`Created folder "${parts[i]}" but got no id back (HTTP ${r.status})`);
+      hit = { id, name: parts[i], path: parts.slice(0, i + 1).join("/") };
+      cats = [...cats, hit];
+    }
+    parentId = hit.id;
+  }
+  return parentId!;
+}
+
+async function findWorkflowInCategory(name: string, categoryId: string): Promise<string | undefined> {
+  const r = await vro.call("GET", "/workflows", { query: { conditions: `name=${name}`, maxResult: 50 } });
+  const items: any[] = flattenInventory(r.body)?.items ?? [];
+  const exact = items.filter((i) => i.name === name);
+  const inCat = exact.filter((i) => !i.categoryId || i.categoryId === categoryId);
+  return (inCat[0] ?? (exact.length === 1 ? exact[0] : undefined))?.id;
+}
+
+const wfParamSchema = z.object({
+  name: z.string(),
+  type: z.string().describe("string, number, boolean, Properties, Array/string, VRA:Host, VC:VirtualMachine, ..."),
+  description: z.string().optional(),
+  default: z.any().optional().describe("Default (string/number/boolean/Array of strings)"),
+});
+
+const wfStepSchema = z.object({
+  id: z.string().describe("Unique step id, used by next/ifTrue/ifFalse"),
+  type: z.enum(["script", "action", "decision", "end"]).optional().describe("Default: script (or action if 'action' is set)"),
+  name: z.string().optional().describe("Display name on the canvas"),
+  description: z.string().optional(),
+  script: z.string().optional().describe("ES5 script. Decisions must `return` a boolean."),
+  action: z.string().optional().describe("Action step: 'module/actionName'"),
+  args: z.record(z.string(), z.string()).optional().describe("Action step: ordered {actionParam: workflowVariable}"),
+  resultTo: z.string().optional().describe("Action step: variable receiving the return value"),
+  in: z.array(z.string()).optional().describe("Variables the step reads (in-bindings)"),
+  out: z.array(z.string()).optional().describe("Variables the step writes (out-bindings) — outputs/attributes only"),
+  next: z.string().optional().describe("Next step id (default: following step, or end)"),
+  ifTrue: z.string().optional(),
+  ifFalse: z.string().optional(),
+});
+
+server.registerTool(
+  "vro_save_workflow",
+  {
+    description:
+      "Create or update (upsert by name + folder) an Orchestrator workflow from a compact spec: inputs, outputs, attributes and ordered steps (script tasks, action calls, decisions, ends). Builds the schema, creates the folder path if missing, and validates. Scripts must be plain ES5. Steps flow in array order unless next/ifTrue/ifFalse say otherwise. Set dryRun to only return the generated XML.",
+    inputSchema: {
+      folder: z.string().describe("Workflow folder path, e.g. 'cloudblogger/Onboarding' (created if missing)"),
+      name: z.string(),
+      description: z.string().optional(),
+      version: z.string().optional(),
+      inputs: z.array(wfParamSchema).optional(),
+      outputs: z.array(wfParamSchema).optional(),
+      attributes: z.array(wfParamSchema).optional(),
+      steps: z.array(wfStepSchema),
+      dryRun: z.boolean().optional(),
+    },
+  },
+  tool(async (a: WfSpec & { folder: string; dryRun?: boolean }) => {
+    const errs = validateSpec(a);
+    if (errs.length) throw new Error("Invalid workflow spec:\n  " + errs.join("\n  "));
+    if (a.dryRun) return { xml: buildWorkflowXml(a, { id: "00000000-0000-0000-0000-000000000000" }) };
+
+    const categoryId = await ensureWorkflowFolder(a.folder);
+    let id = await findWorkflowInCategory(a.name, categoryId);
+    const created = !id;
+    if (!id) {
+      const r = await vro.call("POST", "/workflows", {
+        body: { name: a.name, description: a.description ?? "", "category-id": categoryId },
+      });
+      const b: any = r.body;
+      id = b?.id ?? r.headers["location"]?.replace(/\/+$/, "").split("/").pop();
+      if (!id) throw new Error(`Workflow created but no id returned (HTTP ${r.status}): ${JSON.stringify(b)?.slice(0, 300)}`);
+    }
+    const xml = buildWorkflowXml(a, { id: id! });
+    await vro.call("PUT", `/workflows/${enc(id!)}/content`, { body: xml, contentType: "application/xml" });
+
+    const v = await vro.request("GET", `/workflows/${enc(id!)}/validate`);
+    const def = await getWorkflowDef(id!);
+    return {
+      created,
+      workflowId: id,
+      folder: a.folder,
+      name: def.name,
+      version: def.version,
+      inputs: def.inputs,
+      outputs: def.outputs,
+      validation: v.ok ? v.body ?? "ok" : `HTTP ${v.status}: ${JSON.stringify(v.body)?.slice(0, 800)}`,
+    };
+  })
+);
+
+server.registerTool(
+  "vro_delete_workflow",
+  {
+    description: "Delete a workflow by id or exact name.",
+    inputSchema: { workflow: z.string(), force: z.boolean().optional() },
+    annotations: { destructiveHint: true },
+  },
+  tool(async (a: { workflow: string; force?: boolean }) => {
+    const id = await resolveWorkflowId(a.workflow);
+    await vro.call("DELETE", `/workflows/${enc(id)}`, { query: { force: a.force ?? false } });
+    return { deleted: id };
+  })
+);
 
 // When the client goes away, stdout writes fail with EPIPE — exit quietly instead of crashing.
 for (const s of [process.stdout, process.stdin]) {
