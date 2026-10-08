@@ -24,83 +24,78 @@ It is spec-driven: the bundled OpenAPI file (`spec/vcfoo-9.0.0.json`, 303 operat
 
 Inputs are converted automatically from plain JSON to Orchestrator types: `string`, `number`, `boolean`, `Date`, `Properties`, `Array/x`, `SecureString`, and SDK objects. For SDK objects, pass the id string or `{type,id}`, e.g. `VC:VirtualMachine`. Outputs are converted back to plain JSON.
 
+## Quick start (bearer token)
+
+Verified against **VCF Automation 9.1.1 with the embedded Orchestrator**. This is the simplest way to start.
+
+1. Install it once globally (Node 18.17+):
+
+   ```bash
+   npm install -g vcf-orchestrator-mcp
+   ```
+
+2. Get a bearer token. Sign in to VCF Automation in the browser and open the developer tools (F12) → **Network**. Click any API request to your VCFA host and copy the value after `Authorization: Bearer `. UI tokens are short-lived (about 1 hour), so refresh it when calls start returning 401.
+
+3. Add the server to Claude Desktop. On Windows the config file is `%APPDATA%\Claude\claude_desktop_config.json`; get there via Settings → Developer → Edit Config.
+
+   ```json
+   {
+     "mcpServers": {
+       "vcf-orchestrator": {
+         "command": "vcf-orchestrator-mcp",
+         "env": {
+           "VRO_URL": "https://auto.example.lab",
+           "VRO_AUTH_MODE": "token",
+           "VRO_TOKEN": "eyJraWQiOi...",
+           "VRO_INSECURE": "true"
+         }
+       }
+     }
+   }
+   ```
+
+   `VRO_TOKEN` takes the token with or without the `Bearer ` prefix. Set `VRO_INSECURE` to `true` only for self-signed lab certificates.
+
+4. Fully quit Claude Desktop (from the system tray) and reopen it. Then ask Claude: *"run vro_server_info"*.
+
+For Claude Code, run:
+
+```bash
+claude mcp add vcf-orchestrator -e VRO_URL=https://auto.example.lab -e VRO_AUTH_MODE=token -e VRO_TOKEN=eyJ... -e VRO_INSECURE=true -- vcf-orchestrator-mcp
+```
+
+**Avoid `npx -y vcf-orchestrator-mcp` in Claude Desktop.** `npx` re-checks the registry on every launch, and on Windows that can take longer than Claude Desktop waits for the first handshake, so the server shows as failed. Install globally instead. To upgrade, run `npm update -g vcf-orchestrator-mcp`.
+
+To run from source, `git clone` the repo and run `npm install` (which also builds it), then use `"command": "node", "args": ["<path>/dist/index.js"]`.
+
 ## Configuration (environment variables)
 
 | Var | Default | Notes |
 |---|---|---|
-| `VRO_URL` | — **required** | Embedded: `https://auto.vmw.lab` · External: `https://vro.vmw.lab` |
-| `VRO_API_BASE` | `/vco/api` | |
-| `VRO_AUTH_MODE` | `auto` | `auto` \| `vcfa` \| `vcfa-cloudapi` \| `basic` \| `token` |
-| `VRO_USERNAME` / `VRO_PASSWORD` | | |
-| `VRO_DOMAIN` | | Identity domain for `vcfa` login (e.g. `vsphere.local`, `System Domain`, AD domain) |
-| `VRO_ORG` | | VCFA org for `vcfa-cloudapi` (`System` = provider) |
-| `VRO_AUTH_URL` | `VRO_URL` | Where to log in when Orchestrator authenticates against a **different** VCF Automation host |
-| `VRO_TOKEN` | | Static bearer token (`token` mode) |
+| `VRO_URL` | — **required** | Embedded: your VCF Automation host · External: the Orchestrator appliance |
+| `VRO_AUTH_MODE` | `auto` | `token` (verified) \| `vcfa-cloudapi` \| `vcfa` \| `basic` \| `auto` |
+| `VRO_TOKEN` | | Bearer token for `token` mode |
 | `VRO_INSECURE` | `false` | `true` for self-signed lab certs |
-| `VRO_SPEC_PATH` | bundled 9.0.0 spec | Drop in a newer spec without rebuilding |
+| `VRO_API_BASE` | `/vco/api` | |
+| `VRO_USERNAME` / `VRO_PASSWORD` | | For the login modes below |
+| `VRO_ORG` | | VCFA org for `vcfa-cloudapi` (`System` = provider) |
+| `VRO_DOMAIN` | | Identity domain for `vcfa` login |
+| `VRO_AUTH_URL` | `VRO_URL` | Login host, when Orchestrator authenticates against a **different** VCF Automation host |
+| `VRO_SPEC_PATH` | bundled spec | Drop in a newer OpenAPI spec without rebuilding |
 | `VRO_MAX_CHARS` | `25000` | Response truncation limit per tool call |
 | `VRO_TIMEOUT_MS` | `60000` | |
 | `VRO_SCRATCH_MODULE` | `com.mcp.scratch` | Module for `vro_run_script` temp actions |
 
-### Auth modes
+### Username/password login modes (not yet verified)
 
-- **`vcfa`**: `POST {authUrl}/csp/gateway/am/api/login` (+ `/iaas/api/login` if needed) → Bearer. Classic VCF Automation / All Apps and Aria Automation 8 flow. This covers embedded Orchestrator and external Orchestrator registered to VCF Automation (set `VRO_AUTH_URL` to the VCFA host).
-- **`vcfa-cloudapi`**: `POST {authUrl}/cloudapi/1.0.0/sessions[/provider]` as `user@org` → `x-vmware-vcloud-access-token` as Bearer. This is the VCF Automation 9 org model and **the one to use for VCFA 9 tenant orgs**. Set `VRO_ORG` to the org name, or `System` for the provider. AD/UPN users work as-is: `mayank@vmw.lab` + org `Lab` logs in as `mayank@vmw.lab@Lab`. API versions 9.0.0/40.0/39.0 are tried automatically.
-- **`basic`**: HTTP Basic on every call. Use this for external Orchestrator configured with vSphere SSO auth.
-- **`auto`** tries each mode in turn and keeps the first one Orchestrator accepts. The order is `token` → `vcfa-cloudapi` (if `VRO_ORG` is set) → `vcfa` → `basic`. Pin a mode once you know which one your setup uses.
+These modes log in with a username and password and get a token automatically. They are **not yet verified** against VCFA 9.x.
 
-Tokens are refreshed automatically on a 401. If login fails, `vro_server_info` returns the error plus unauthenticated probes of each login endpoint, which shows which flavour the host supports.
+- **`vcfa-cloudapi`**: `POST /cloudapi/1.0.0/sessions[/provider]` as `user@org`, then uses the returned `x-vmware-vcloud-access-token` as the bearer token. This is the VCF Automation 9 org model. Set `VRO_ORG`.
+- **`vcfa`**: CSP login (`/csp/gateway/am/api/login`). This is the Aria Automation 8 style; VCFA 9 doesn't offer it.
+- **`basic`**: HTTP Basic auth, for external Orchestrator configured with vSphere SSO.
+- **`auto`**: tries `token`, then `vcfa-cloudapi`, then `vcfa`, then `basic`.
 
-## Install
-
-Recommended — install once globally (Node 18.17+), so Claude Desktop starts it instantly:
-
-```bash
-npm install -g vcf-orchestrator-mcp
-```
-
-and use `"command": "vcf-orchestrator-mcp"` with no `args` in the config. Running through `npx -y vcf-orchestrator-mcp` also works, but `npx` re-checks the registry on every launch. On Windows that can take 30–60 s, longer than Claude Desktop waits for the first handshake. Run `npm update -g vcf-orchestrator-mcp` to upgrade.
-
-To run from source instead: `git clone`, `npm install`, `npm run build`, then point `command`/`args` at `node dist/index.js`.
-
-## Claude Desktop (Windows) — `%APPDATA%\Claude\claude_desktop_config.json`
-
-Embedded (Orchestrator inside VCF Automation):
-
-```json
-{
-  "mcpServers": {
-    "vcf-orchestrator": {
-      "command": "npx",
-      "args": ["-y", "vcf-orchestrator-mcp"],
-      "env": {
-        "VRO_URL": "https://auto.vmw.lab",
-        "VRO_AUTH_MODE": "vcfa",
-        "VRO_USERNAME": "configadmin",
-        "VRO_PASSWORD": "********",
-        "VRO_INSECURE": "true"
-      }
-    }
-  }
-}
-```
-
-External / All Apps (Orchestrator on its own appliance, authenticating via VCF Automation):
-
-```json
-"env": {
-  "VRO_URL": "https://vro.vmw.lab",
-  "VRO_AUTH_URL": "https://auto.vmw.lab",
-  "VRO_AUTH_MODE": "vcfa",
-  "VRO_USERNAME": "configadmin",
-  "VRO_PASSWORD": "********",
-  "VRO_INSECURE": "true"
-}
-```
-
-External with vSphere SSO auth: `"VRO_AUTH_MODE": "basic"` and `"VRO_USERNAME": "administrator@vsphere.local"`.
-
-Claude Code: `claude mcp add vcf-orchestrator -e VRO_URL=https://auto.vmw.lab -e VRO_USERNAME=... -e VRO_PASSWORD=... -e VRO_INSECURE=true -- npx -y vcf-orchestrator-mcp`
+When login fails, `vro_server_info` returns the error plus unauthenticated probes of every login endpoint. That shows which login flavours your host offers. In the password modes, the token is re-fetched automatically when a call returns 401.
 
 ## Tips for prompting
 
@@ -108,6 +103,9 @@ Claude Code: `claude mcp add vcf-orchestrator -e VRO_URL=https://auto.vmw.lab -e
 - "Write an action in com.mayank.lab that returns all vCenter VM names, run it and fix it until it works"
 - "Find the API for exporting a package and export com.vmware.library to a file"
 - "Show the last 5 failed runs of workflow X and why they failed"
+- "Create a workflow in folder Lab/Onboarding that ... with vraHost preset to the Default VRA host, then run it"
+
+`examples/onboard-vms-by-name.workflow.json` is a full `vro_save_workflow` spec. It's an onboarding workflow that brings unmanaged VMs into a VCF Automation project, and it has been run end to end on VCF Automation 9.1.1.
 
 ## Testing
 
