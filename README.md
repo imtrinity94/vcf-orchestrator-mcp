@@ -43,19 +43,21 @@ Inputs are converted automatically from plain JSON to Orchestrator types: `strin
 ### Auth modes
 
 - **`vcfa`**: `POST {authUrl}/csp/gateway/am/api/login` (+ `/iaas/api/login` if needed) → Bearer. Classic VCF Automation / All Apps and Aria Automation 8 flow. This covers embedded Orchestrator and external Orchestrator registered to VCF Automation (set `VRO_AUTH_URL` to the VCFA host).
-- **`vcfa-cloudapi`**: `POST {authUrl}/cloudapi/1.0.0/sessions[/provider]` as `user@org` → `x-vmware-vcloud-access-token` as Bearer (VCF Automation 9 org model).
+- **`vcfa-cloudapi`**: `POST {authUrl}/cloudapi/1.0.0/sessions[/provider]` as `user@org` → `x-vmware-vcloud-access-token` as Bearer. This is the VCF Automation 9 org model and **the one to use for VCFA 9 tenant orgs**. Set `VRO_ORG` to the org name, or `System` for the provider. AD/UPN users work as-is: `mayank@vmw.lab` + org `Lab` logs in as `mayank@vmw.lab@Lab`. API versions 9.0.0/40.0/39.0 are tried automatically.
 - **`basic`**: HTTP Basic on every call. Use this for external Orchestrator configured with vSphere SSO auth.
 - **`auto`** tries each mode in turn and keeps the first one Orchestrator accepts. The order is `token` → `vcfa-cloudapi` (if `VRO_ORG` is set) → `vcfa` → `basic`. Pin a mode once you know which one your setup uses.
 
-Tokens are refreshed automatically on a 401.
+Tokens are refreshed automatically on a 401. If login fails, `vro_server_info` returns the error plus unauthenticated probes of each login endpoint, which shows which flavour the host supports.
 
 ## Install
 
-No install step is needed — Claude Desktop runs it with `npx` (Node 18.17+ required):
+Recommended — install once globally (Node 18.17+), so Claude Desktop starts it instantly:
 
 ```bash
-npx -y vcf-orchestrator-mcp
+npm install -g vcf-orchestrator-mcp
 ```
+
+and use `"command": "vcf-orchestrator-mcp"` with no `args` in the config. Running through `npx -y vcf-orchestrator-mcp` also works, but `npx` re-checks the registry on every launch. On Windows that can take 30–60 s, longer than Claude Desktop waits for the first handshake. Run `npm update -g vcf-orchestrator-mcp` to upgrade.
 
 To run from source instead: `git clone`, `npm install`, `npm run build`, then point `command`/`args` at `node dist/index.js`.
 

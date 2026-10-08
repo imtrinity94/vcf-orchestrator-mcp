@@ -259,7 +259,7 @@ async function saveAction(a: {
 
 // ---------------------------------------------------------------- server
 
-const server = new McpServer({ name: "vcf-orchestrator", version: "0.1.0" });
+const server = new McpServer({ name: "vcf-orchestrator", version: "0.1.1" });
 
 const jsonObj = z.record(z.string(), z.any());
 
@@ -272,6 +272,25 @@ server.registerTool(
     annotations: { readOnlyHint: true },
   },
   tool(async () => {
+    try {
+      await vro.login();
+    } catch (e: any) {
+      return out({
+        status: "LOGIN FAILED",
+        error: e.message,
+        config: {
+          url: `${cfg.url}${cfg.apiBase}`,
+          authUrl: cfg.authUrl,
+          authMode: cfg.authMode,
+          username: cfg.username,
+          domain: cfg.domain,
+          org: cfg.org,
+        },
+        probes: await vro.diagnose(),
+        hint:
+          "404 on a probe = that login flavour isn't offered by the host. VCF Automation 9 tenant orgs: VRO_AUTH_MODE=vcfa-cloudapi + VRO_ORG=<org name>. Provider: VRO_ORG=System.",
+      });
+    }
     const about = await vro.request("GET", "/about");
     return {
       url: `${cfg.url}${cfg.apiBase}`,
@@ -633,6 +652,16 @@ server.registerTool(
 );
 
 // ---------------------------------------------------------------- start
+
+// When the client goes away, stdout writes fail with EPIPE — exit quietly instead of crashing.
+for (const s of [process.stdout, process.stdin]) {
+  s.on("error", (err: NodeJS.ErrnoException) => {
+    if (err?.code === "EPIPE" || err?.code === "ERR_STREAM_DESTROYED" || err?.code === "ECONNRESET") process.exit(0);
+    console.error("[vcf-orchestrator-mcp] stream error:", err);
+  });
+}
+process.stdin.on("end", () => process.exit(0));
+process.on("unhandledRejection", (r) => console.error("[vcf-orchestrator-mcp] unhandled rejection:", r));
 
 const transport = new StdioServerTransport();
 await server.connect(transport);

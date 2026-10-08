@@ -25,6 +25,12 @@ export class ApiError extends Error {
 
 type ResolvedMode = Exclude<AuthMode, "auto">;
 
+function snippet(body: unknown, n = 300): string {
+  if (body === null || body === undefined || body === "") return "";
+  const s = typeof body === "string" ? body : JSON.stringify(body);
+  return s.replace(/\s+/g, " ").slice(0, n);
+}
+
 export class OrchestratorClient {
   private dispatcher: Dispatcher;
   private authHeader?: string;
@@ -95,7 +101,13 @@ export class OrchestratorClient {
       body: JSON.stringify(body),
     });
     const data: any = await OrchestratorClient.readBody(res);
-    if (!res.ok) throw new ApiError(`VCFA login failed (${res.status})`, res.status, data);
+    if (!res.ok) {
+      const hint =
+        res.status === 404
+          ? " — this host has no /csp login endpoint (VCF Automation 9 tenant orgs use the cloudapi login: set VRO_AUTH_MODE=vcfa-cloudapi and VRO_ORG=<your org>)"
+          : "";
+      throw new ApiError(`VCFA (CSP) login failed: HTTP ${res.status} ${snippet(data)}${hint}`, res.status, data);
+    }
     if (data?.access_token) return `Bearer ${data.access_token}`;
     const refresh = data?.refresh_token;
     if (!refresh) throw new ApiError("VCFA login returned no token", res.status, data);
@@ -113,20 +125,30 @@ export class OrchestratorClient {
   private async loginCloudApi(): Promise<string> {
     const { user, pass } = this.requireCreds("vcfa-cloudapi");
     const org = this.cfg.org ?? "System";
-    const principal = user.includes("@") ? user : `${user}@${org}`;
+    // Principal is user@org. AD/UPN users (mayank@vmw.lab) become mayank@vmw.lab@Org.
+    const principal =
+      this.cfg.org || !user.includes("@")
+        ? user.toLowerCase().endsWith(`@${org.toLowerCase()}`)
+          ? user
+          : `${user}@${org}`
+        : user;
     const isProvider = org.toLowerCase() === "system";
     const url = `${this.cfg.authUrl}/cloudapi/1.0.0/sessions${isProvider ? "/provider" : ""}`;
-    const res = await this.rawFetch(url, {
-      method: "POST",
-      headers: {
-        Authorization: this.basicHeader(principal, pass),
-        Accept: `application/json;version=${this.cfg.cloudapiVersion}`,
-      },
-    });
-    const data = await OrchestratorClient.readBody(res);
-    const tok = res.headers.get("x-vmware-vcloud-access-token");
-    if (!res.ok || !tok) throw new ApiError(`VCFA cloudapi session login failed (${res.status})`, res.status, data);
-    return `Bearer ${tok}`;
+    const versions = [...new Set([this.cfg.cloudapiVersion, "9.0.0", "40.0", "39.0", "38.0"])];
+    let last = "";
+    for (const v of versions) {
+      const res = await this.rawFetch(url, {
+        method: "POST",
+        headers: { Authorization: this.basicHeader(principal, pass), Accept: `application/json;version=${v}` },
+      });
+      const data = await OrchestratorClient.readBody(res);
+      const tok = res.headers.get("x-vmware-vcloud-access-token");
+      if (res.ok && tok) return `Bearer ${tok}`;
+      last = `HTTP ${res.status} (api version ${v}, principal ${principal}): ${snippet(data)}`;
+      // Only retry other API versions when the version itself was rejected
+      if (res.status !== 406 && res.status !== 400) break;
+    }
+    throw new ApiError(`VCFA cloudapi session login failed — ${last}`, 0, undefined);
   }
 
   private async headerFor(mode: ResolvedMode): Promise<string> {
@@ -196,6 +218,35 @@ export class OrchestratorClient {
       }
     })();
     return this.loginInFlight;
+  }
+
+  /** Unauthenticated probes that show which login flavours this host offers */
+  async diagnose(): Promise<Record<string, string>> {
+    const probes: [string, string, string][] = [
+      ["csp login (vcfa mode)", "GET", `${this.cfg.authUrl}/csp/gateway/am/api/login`],
+      ["cloudapi sessions (vcfa-cloudapi mode)", "GET", `${this.cfg.authUrl}/cloudapi/1.0.0/sessions`],
+      ["api versions", "GET", `${this.cfg.authUrl}/api/versions`],
+      ["orchestrator about", "GET", `${this.cfg.url}${this.cfg.apiBase}/about`],
+      ["orchestrator health", "GET", `${this.cfg.url}${this.cfg.apiBase}/healthstatus`],
+    ];
+    const out: Record<string, string> = {};
+    await Promise.all(
+      probes.map(async ([name, method, url]) => {
+        try {
+          const res = await this.rawFetch(url, { method, headers: { Accept: "application/json, */*" } });
+          const body = await OrchestratorClient.readBody(res);
+          let extra = "";
+          if (name === "api versions" && typeof body === "string") {
+            const vs = [...body.matchAll(/<Version>([^<]+)<\/Version>/g)].map((m) => m[1]);
+            extra = vs.length ? ` versions: ${vs.slice(-6).join(", ")}` : "";
+          } else if (res.ok) extra = " " + snippet(body, 150);
+          out[name] = `HTTP ${res.status}${extra}  (${url})`;
+        } catch (e: any) {
+          out[name] = `unreachable: ${e.message}`;
+        }
+      })
+    );
+    return out;
   }
 
   // ---------- requests ----------
