@@ -173,14 +173,14 @@ export function buildWorkflowXml(spec: WfSpec, opts: { id: string; categoryId?: 
     const disp = `<display-name>${cdata(s.name ?? s.id)}</display-name>`;
     const desc = s.description ? `<description>${cdata(s.description)}</description>` : "";
     if (t === "end") {
-      items.push(`<workflow-item name="${nm}" type="end" end-mode="0">${desc}${pos}</workflow-item>`);
+      items.push(`<workflow-item name="${nm}" type="end" end-mode="0" comparator="0">${desc}${pos}</workflow-item>`);
     } else if (t === "decision") {
       items.push(
-        `<workflow-item name="${nm}" out-name="${itemName.get(s.ifTrue!)}" alt-out-name="${itemName.get(s.ifFalse!)}" type="custom-condition">` +
+        `<workflow-item name="${nm}" out-name="${itemName.get(s.ifTrue!)}" alt-out-name="${itemName.get(s.ifFalse!)}" type="custom-condition" comparator="0">` +
           disp +
-          desc +
           `<script encoded="false">${cdata(s.script!)}</script>` +
           bindXml("in-binding", bindingsIn(s)) +
+          desc +
           pos +
           `</workflow-item>`
       );
@@ -188,19 +188,19 @@ export function buildWorkflowXml(spec: WfSpec, opts: { id: string; categoryId?: 
       const script = t === "action" ? actionScript(s) : s.script!;
       const mod = t === "action" ? ` script-module="${attr(s.action!)}"` : "";
       items.push(
-        `<workflow-item name="${nm}" out-name="${nextOf(i)}" type="task"${mod}>` +
+        `<workflow-item name="${nm}" out-name="${nextOf(i)}" type="task"${mod} comparator="0">` +
           disp +
-          desc +
           `<script encoded="false">${cdata(script)}</script>` +
           bindXml("in-binding", bindingsIn(s)) +
           bindXml("out-binding", bindingsOut(s)) +
+          desc +
           pos +
           `</workflow-item>`
       );
     }
   });
   if (usesImplicitEnd) {
-    items.unshift(`<workflow-item name="${IMPLICIT_END}" type="end" end-mode="0"><position y="${Y + 60}" x="${X0 + spec.steps.length * DX}"/></workflow-item>`);
+    items.unshift(`<workflow-item name="${IMPLICIT_END}" type="end" end-mode="0" comparator="0"><position y="${Y + 60}" x="${X0 + spec.steps.length * DX}"/></workflow-item>`);
   }
 
   const paramXml = (p: WfParam) =>
@@ -231,7 +231,7 @@ export function buildWorkflowXml(spec: WfSpec, opts: { id: string; categoryId?: 
 
   return (
     `<?xml version="1.0" encoding="UTF-8"?>` +
-    `<ns2:workflow xmlns:ns2="http://vmware.com/vco/workflow" root-name="${root}" object-name="workflow:name=generic" id="${attr(opts.id)}" version="${attr(spec.version ?? "1.0.0")}" api-version="6.0.0" restartMode="1" resumeFromFailedMode="0"${extra}>` +
+    `<schema-workflow xmlns:ns2="http://www.vmware.com/vco" root-name="${root}" object-name="workflow:name=generic" id="${attr(opts.id)}" version="${attr(spec.version ?? "1.0.0")}" api-version="6.0.0" restartMode="1" resumeFromFailedMode="0" editor-version="2.0"${extra}>` +
     `<display-name>${cdata(spec.name)}</display-name>` +
     `<description>${cdata(spec.description ?? "")}</description>` +
     `<position y="50" x="100"/>` +
@@ -240,6 +240,6 @@ export function buildWorkflowXml(spec: WfSpec, opts: { id: string; categoryId?: 
     (spec.attributes ?? []).map(attribXml).join("") +
     items.join("") +
     `<presentation>${pParams}</presentation>` +
-    `</ns2:workflow>`
+    `</schema-workflow>`
   );
 }

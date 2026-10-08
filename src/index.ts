@@ -260,7 +260,7 @@ async function saveAction(a: {
 
 // ---------------------------------------------------------------- server
 
-const server = new McpServer({ name: "vcf-orchestrator", version: "0.2.0" });
+const server = new McpServer({ name: "vcf-orchestrator", version: "0.2.1" });
 
 const jsonObj = z.record(z.string(), z.any());
 
@@ -656,37 +656,37 @@ server.registerTool(
 
 // ---- workflow authoring
 
-async function listWorkflowCategories(): Promise<{ id: string; name: string; path: string }[]> {
-  const r = await vro.call("GET", "/categories", { query: { categoryType: "WorkflowCategory" } });
-  const b: any = r.body;
-  const flat = flattenInventory(b);
-  const raw: any[] = flat?.items ?? b?.categories ?? b?.category ?? (Array.isArray(b) ? b : []);
-  return raw.map((c: any) => ({ id: c.id, name: c.name, path: String(c.path ?? c.name ?? "") }));
+function categoryLinks(body: any, rel: string): { id: string; name: string }[] {
+  const links: any[] = body?.relations?.link ?? body?.link ?? [];
+  return links
+    .filter((l) => (rel === "*" || l.rel === rel) && Array.isArray(l.attributes))
+    .map((l) => {
+      const o: Record<string, string> = {};
+      for (const a of l.attributes) o[a.name] = a.value;
+      return { id: o.id, name: o.name, type: o.type };
+    })
+    .filter((c: any) => c.id && (!c.type || c.type === "WorkflowCategory"));
 }
 
-/** Ensure a folder path like "Library/cloudblogger/Onboarding" exists; returns the leaf category id */
+/** Ensure a folder path like "cloudblogger/Onboarding" exists (walks the tree from the roots); returns the leaf id */
 async function ensureWorkflowFolder(folderPath: string): Promise<string> {
   const parts = folderPath.split("/").map((p) => p.trim()).filter(Boolean);
   if (!parts.length) throw new Error("folder must be a path like 'Lab/Onboarding'");
-  let cats = await listWorkflowCategories();
-  const norm = (p: string) => p.replace(/^\/+|\/+$/g, "").replace(/\s*\/\s*/g, "/").toLowerCase();
+  const roots = await vro.call("GET", "/categories", { query: { categoryType: "WorkflowCategory", isRoot: true } });
+  let children = categoryLinks(roots.body, "*");
   let parentId: string | undefined;
-  for (let i = 0; i < parts.length; i++) {
-    const want = norm(parts.slice(0, i + 1).join("/"));
-    let hit = cats.find((c) => norm(c.path) === want);
-    if (!hit && i === 0) hit = cats.find((c) => norm(c.name) === want && !norm(c.path).includes("/"));
+  for (const part of parts) {
+    let hit = children.find((c) => c.name === part) ?? children.find((c) => c.name?.toLowerCase() === part.toLowerCase());
     if (!hit) {
-      const body = { categoryType: "WorkflowCategory", name: parts[i], description: "Created by vcf-orchestrator MCP" };
-      const r = parentId
-        ? await vro.call("POST", `/categories/${enc(parentId)}`, { body: { ...body, "parent-category-id": parentId } })
-        : await vro.call("POST", "/categories", { body });
+      const body = { name: part, type: "WorkflowCategory", description: "Created by vcf-orchestrator MCP" };
+      const r = await vro.call("POST", parentId ? `/categories/${enc(parentId)}` : "/categories", { body });
       const b: any = r.body;
-      const id = b?.id ?? r.headers["location"]?.replace(/\/+$/, "").split("/").pop();
-      if (!id) throw new Error(`Created folder "${parts[i]}" but got no id back (HTTP ${r.status})`);
-      hit = { id, name: parts[i], path: parts.slice(0, i + 1).join("/") };
-      cats = [...cats, hit];
+      if (!b?.id) throw new Error(`Created folder "${part}" but got no id back (HTTP ${r.status})`);
+      hit = { id: b.id, name: part };
     }
     parentId = hit.id;
+    const cur = await vro.call("GET", `/categories/${enc(parentId)}`);
+    children = categoryLinks(cur.body, "down");
   }
   return parentId!;
 }

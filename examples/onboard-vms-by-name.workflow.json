@@ -1,0 +1,212 @@
+{
+ "folder": "cloudblogger/Onboarding",
+ "name": "Onboard VMs by Name",
+ "description": "Onboards unmanaged vCenter VMs into a VCF Automation 9.1 VM Apps org project, one deployment per VM (no blueprint). dryRun=true builds the plan without executing it.",
+ "version": "1.1.0",
+ "inputs": [
+  {
+   "name": "vraHostName",
+   "type": "string",
+   "description": "VCF Automation host name in the Orchestrator inventory",
+   "default": "Default"
+  },
+  {
+   "name": "projectName",
+   "type": "string",
+   "description": "Target project"
+  },
+  {
+   "name": "cloudAccountName",
+   "type": "string",
+   "description": "vCenter cloud account name"
+  },
+  {
+   "name": "vmNames",
+   "type": "Array/string",
+   "description": "Exact VM names as seen in vCenter"
+  },
+  {
+   "name": "planName",
+   "type": "string",
+   "description": "Empty = auto vRO-Onboard-<timestamp>; same name = reuse plan"
+  },
+  {
+   "name": "deploymentPrefix",
+   "type": "string",
+   "description": "Deployment name = prefix + VM name",
+   "default": "Deployment-"
+  },
+  {
+   "name": "failOnMissing",
+   "type": "boolean",
+   "description": "Abort if any VM isn't found as unmanaged",
+   "default": true
+  },
+  {
+   "name": "dryRun",
+   "type": "boolean",
+   "description": "Build plan + deployments but do not execute",
+   "default": true
+  },
+  {
+   "name": "timeoutMinutes",
+   "type": "number",
+   "description": "Execution polling timeout",
+   "default": 30
+  }
+ ],
+ "outputs": [
+  {
+   "name": "planLink",
+   "type": "string"
+  },
+  {
+   "name": "deploymentNames",
+   "type": "Array/string"
+  },
+  {
+   "name": "missingVms",
+   "type": "Array/string"
+  },
+  {
+   "name": "planStatus",
+   "type": "string"
+  }
+ ],
+ "attributes": [
+  {
+   "name": "vraHost",
+   "type": "VRA:Host"
+  },
+  {
+   "name": "projectId",
+   "type": "string"
+  },
+  {
+   "name": "endpointId",
+   "type": "string"
+  },
+  {
+   "name": "effectivePlanName",
+   "type": "string"
+  },
+  {
+   "name": "machines",
+   "type": "Array/Properties"
+  }
+ ],
+ "steps": [
+  {
+   "id": "resolve",
+   "name": "Resolve host and IDs",
+   "in": [
+    "vraHostName",
+    "projectName",
+    "cloudAccountName",
+    "planName"
+   ],
+   "out": [
+    "vraHost",
+    "projectId",
+    "endpointId",
+    "effectivePlanName"
+   ],
+   "script": "var mod = System.getModule(\"com.cloudblogger.onboarding\");\n\nvraHost = mod.getVraHostByName(vraHostName);\n\nif (!projectName || !cloudAccountName) throw \"projectName and cloudAccountName are required\";\n\nprojectId  = mod.getProjectId(vraHost, projectName);\nendpointId = mod.getCloudAccountId(vraHost, cloudAccountName);\n\nfunction p2(n) { return (n < 10 ? \"0\" : \"\") + n; }\nif (!planName || String(planName).trim() === \"\") {\n    var d = new Date();\n    effectivePlanName = \"vRO-Onboard-\" + d.getFullYear() + p2(d.getMonth() + 1) + p2(d.getDate()) +\n        \"-\" + p2(d.getHours()) + p2(d.getMinutes()) + p2(d.getSeconds());\n} else {\n    effectivePlanName = String(planName).trim();\n}\nSystem.log(\"Plan name: \" + effectivePlanName);"
+  },
+  {
+   "id": "plan",
+   "name": "Create or reuse plan",
+   "in": [
+    "vraHost",
+    "effectivePlanName",
+    "projectId",
+    "endpointId",
+    "vmNames"
+   ],
+   "out": [
+    "planLink"
+   ],
+   "script": "planLink = System.getModule(\"com.cloudblogger.onboarding\").createOnboardingPlan(\n    vraHost, effectivePlanName, projectId, endpointId,\n    \"vRO onboarding of \" + vmNames.length + \" VM(s): \" + vmNames.join(\", \").substring(0, 200));"
+  },
+  {
+   "id": "find",
+   "name": "Find unmanaged machines",
+   "in": [
+    "vraHost",
+    "planLink",
+    "vmNames",
+    "failOnMissing"
+   ],
+   "out": [
+    "machines",
+    "missingVms"
+   ],
+   "script": "machines = System.getModule(\"com.cloudblogger.onboarding\").findUnmanagedMachines(vraHost, planLink, vmNames);\n\nvar foundLower = {};\nfor (var i = 0; i < machines.length; i++) foundLower[String(machines[i].get(\"name\")).toLowerCase()] = true;\n\nmissingVms = [];\nfor (var j = 0; j < vmNames.length; j++) {\n    if (!foundLower[String(vmNames[j]).trim().toLowerCase()]) missingVms.push(vmNames[j]);\n}\n\nSystem.log(\"Found \" + machines.length + \"/\" + vmNames.length + \" VM(s) as unmanaged\");\nif (missingVms.length > 0) {\n    System.warn(\"Missing: \" + missingVms.join(\", \"));\n    if (failOnMissing) throw \"Aborting: \" + missingVms.length + \" VM(s) not found as unmanaged: \" + missingVms.join(\", \");\n}\nif (machines.length === 0) throw \"Nothing to onboard\";"
+  },
+  {
+   "id": "deps",
+   "name": "Add deployments to plan",
+   "in": [
+    "vraHost",
+    "planLink",
+    "machines",
+    "deploymentPrefix"
+   ],
+   "out": [
+    "deploymentNames"
+   ],
+   "script": "deploymentNames = System.getModule(\"com.cloudblogger.onboarding\")\n    .addDeploymentsToPlan(vraHost, planLink, machines, deploymentPrefix);"
+  },
+  {
+   "id": "isDry",
+   "type": "decision",
+   "name": "Dry run?",
+   "in": [
+    "dryRun"
+   ],
+   "ifTrue": "report",
+   "ifFalse": "execute",
+   "script": "return dryRun == true;"
+  },
+  {
+   "id": "report",
+   "name": "Report dry run",
+   "out": [
+    "planStatus"
+   ],
+   "next": "endDry",
+   "script": "planStatus = \"DRY_RUN\";\nSystem.log(\"Dry run: review the plan in Infrastructure > Onboarding, then execute it from the UI or re-run with dryRun=false and a new planName.\");"
+  },
+  {
+   "id": "endDry",
+   "type": "end",
+   "name": "End (dry run)"
+  },
+  {
+   "id": "execute",
+   "name": "Execute plan and wait",
+   "in": [
+    "vraHost",
+    "planLink",
+    "timeoutMinutes"
+   ],
+   "out": [
+    "planStatus"
+   ],
+   "script": "planStatus = System.getModule(\"com.cloudblogger.onboarding\")\n    .executePlanAndWait(vraHost, planLink, timeoutMinutes, 15);"
+  },
+  {
+   "id": "verify",
+   "name": "Verify deployments",
+   "in": [
+    "vraHost",
+    "deploymentNames",
+    "planStatus"
+   ],
+   "out": [
+    "planStatus"
+   ],
+   "script": "var notFound = System.getModule(\"com.cloudblogger.onboarding\")\n    .verifyOnboardedDeployments(vraHost, deploymentNames);\n\nif (notFound.length > 0) {\n    System.warn(notFound.length + \" deployment(s) not visible yet: \" + notFound.join(\", \"));\n    if (planStatus === \"OK\") planStatus = \"OK_WITH_MISSING\";\n} else {\n    System.log(\"All \" + deploymentNames.length + \" deployment(s) onboarded and visible.\");\n}"
+  }
+ ]
+}
