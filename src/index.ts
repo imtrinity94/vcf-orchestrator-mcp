@@ -662,7 +662,7 @@ server.registerTool(
       script: a.script,
       inputs: defs,
       returnType: a.returnType ?? "Any",
-      description: "Temporary action created by vcf-orchestrator MCP (vro_run_script)",
+      description: "Temporary action (vro_run_script)",
     });
     try {
       const action = await getAction(`${cfg.scratchModule}/${name}`);
@@ -702,7 +702,7 @@ async function ensureWorkflowFolder(folderPath: string): Promise<string> {
   for (const part of parts) {
     let hit = children.find((c) => c.name === part) ?? children.find((c) => c.name?.toLowerCase() === part.toLowerCase());
     if (!hit) {
-      const body = { name: part, type: "WorkflowCategory", description: "Created by vcf-orchestrator MCP" };
+      const body = { name: part, type: "WorkflowCategory", description: "" };
       const r = await vro.call("POST", parentId ? `/categories/${enc(parentId)}` : "/categories", { body });
       const b: any = r.body;
       if (!b?.id) throw new Error(`Created folder "${part}" but got no id back (HTTP ${r.status})`);
