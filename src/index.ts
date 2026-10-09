@@ -225,6 +225,17 @@ async function executeAction(action: any, inputs: Record<string, unknown>, stric
   };
 }
 
+/** Bump a semver-ish "x.y.z" by level; non-semver or empty -> 1.0.0 */
+function bumpVersion(v: string | undefined, level: "patch" | "minor" | "major" = "patch"): string {
+  const m = String(v ?? "").match(/^(\d+)\.(\d+)\.(\d+)/);
+  if (!m || (m[1] === "0" && m[2] === "0" && m[3] === "0")) return "1.0.0";
+  let [maj, min, pat] = [Number(m[1]), Number(m[2]), Number(m[3])];
+  if (level === "major") { maj++; min = 0; pat = 0; }
+  else if (level === "minor") { min++; pat = 0; }
+  else pat++;
+  return `${maj}.${min}.${pat}`;
+}
+
 async function saveAction(a: {
   module: string;
   name: string;
@@ -232,14 +243,18 @@ async function saveAction(a: {
   inputs?: ParamDef[];
   returnType?: string;
   description?: string;
+  version?: string;
+  bump?: "patch" | "minor" | "major";
 }) {
   let existing: any;
   const probe = await vro.request("GET", `/actions/${enc(a.module)}/${enc(a.name)}`);
   if (probe.ok) existing = probe.body;
+  const version = a.version ?? (existing ? bumpVersion(existing.version, a.bump ?? "patch") : "1.0.0");
   const body: any = {
     ...(existing ? { id: existing.id } : {}),
     module: a.module,
     name: a.name,
+    version,
     script: a.script,
     description: a.description ?? existing?.description ?? "",
     "input-parameters": (a.inputs ?? paramDefs(pick(existing, "input-parameters", "inputParameters"))).map((p) => ({
@@ -255,12 +270,16 @@ async function saveAction(a: {
     await vro.call("POST", "/actions", { body });
   }
   const saved = await getAction(`${a.module}/${a.name}`);
-  return { created: !existing, action: summarizeAction(saved, false) };
+  return {
+    created: !existing,
+    ...(existing ? { previousVersion: existing.version } : {}),
+    action: summarizeAction(saved, false),
+  };
 }
 
 // ---------------------------------------------------------------- server
 
-const server = new McpServer({ name: "vcf-orchestrator", version: "0.3.0" });
+const server = new McpServer({ name: "vcf-orchestrator", version: "0.4.0" });
 
 const jsonObj = z.record(z.string(), z.any());
 
@@ -600,7 +619,7 @@ server.registerTool(
   "vro_save_action",
   {
     description:
-      "Create or update an action (upsert by module/name). Script must be plain ES5 JavaScript (no arrow functions, let/const, template literals, etc.) — Orchestrator runs Rhino. Omitted inputs/returnType keep the existing ones on update.",
+      "Create or update an action (upsert by module/name). Script must be plain ES5 JavaScript (no arrow functions, let/const, template literals, etc.) — Orchestrator runs Rhino. Omitted inputs/returnType keep the existing ones on update. Versions are always maintained: new actions start at 1.0.0, every update bumps the patch version unless version/bump is given.",
     inputSchema: {
       module: z.string().describe("e.g. com.mayank.lab"),
       name: z.string(),
@@ -608,6 +627,8 @@ server.registerTool(
       inputs: z.array(paramDefSchema).optional(),
       returnType: z.string().optional().describe("e.g. string, Properties, Array/string, VC:VirtualMachine, void"),
       description: z.string().optional(),
+      version: z.string().optional().describe("Explicit x.y.z. Omit to auto-bump: new = 1.0.0, update = patch+1"),
+      bump: z.enum(["patch", "minor", "major"]).optional().describe("Auto-bump level when version is omitted (default patch)"),
     },
   },
   tool(async (a: any) => saveAction(a))
@@ -729,12 +750,13 @@ server.registerTool(
   "vro_save_workflow",
   {
     description:
-      "Create or update (upsert by name + folder) an Orchestrator workflow from a compact spec: inputs, outputs, attributes and ordered steps (script tasks, action calls, decisions, ends). Builds the schema, creates the folder path if missing, and validates. Scripts must be plain ES5. Steps flow in array order unless next/ifTrue/ifFalse say otherwise. Set dryRun to only return the generated XML.",
+      "Create or update (upsert by name + folder) an Orchestrator workflow from a compact spec: inputs, outputs, attributes and ordered steps (script tasks, action calls, decisions, ends). Builds the schema, creates the folder path if missing, and validates. Scripts must be plain ES5. Steps flow in array order unless next/ifTrue/ifFalse say otherwise. Versions are always maintained: new = 1.0.0, each update bumps the patch version unless version/bump is given. Set dryRun to only return the generated XML.",
     inputSchema: {
       folder: z.string().describe("Workflow folder path, e.g. 'mbcom/Onboarding' (created if missing)"),
       name: z.string(),
       description: z.string().optional(),
-      version: z.string().optional(),
+      version: z.string().optional().describe("Explicit x.y.z. Omit to auto-bump: new = 1.0.0, update = patch+1"),
+      bump: z.enum(["patch", "minor", "major"]).optional().describe("Auto-bump level when version is omitted (default patch)"),
       inputs: z.array(wfParamSchema).optional(),
       outputs: z.array(wfParamSchema).optional(),
       attributes: z.array(wfParamSchema).optional(),
@@ -750,6 +772,9 @@ server.registerTool(
     const categoryId = await ensureWorkflowFolder(a.folder);
     let id = await findWorkflowInCategory(a.name, categoryId);
     const created = !id;
+    let previousVersion: string | undefined;
+    if (id) previousVersion = (await getWorkflowDef(id)).version;
+    if (!a.version) a.version = created ? "1.0.0" : bumpVersion(previousVersion, (a as any).bump ?? "patch");
     if (!id) {
       const r = await vro.call("POST", "/workflows", {
         body: { name: a.name, description: a.description ?? "", "category-id": categoryId },
@@ -765,6 +790,7 @@ server.registerTool(
     const def = await getWorkflowDef(id!);
     return {
       created,
+      ...(previousVersion ? { previousVersion } : {}),
       workflowId: id,
       folder: a.folder,
       name: def.name,
@@ -773,6 +799,64 @@ server.registerTool(
       outputs: def.outputs,
       validation: v.ok ? v.body ?? "ok" : `HTTP ${v.status}: ${JSON.stringify(v.body)?.slice(0, 800)}`,
     };
+  })
+);
+
+server.registerTool(
+  "vro_set_versions",
+  {
+    description:
+      "Set or bump the version of actions (whole module or listed fqns) and/or workflows (ids or names) in one call, without touching their content. Use to baseline versions (e.g. set 1.0.0) or to mark a release (bump minor/major).",
+    inputSchema: {
+      module: z.string().optional().describe("Action module: apply to every action in it"),
+      actions: z.array(z.string()).optional().describe("Action 'module/name' or ids"),
+      workflows: z.array(z.string()).optional().describe("Workflow ids or exact names"),
+      version: z.string().optional().describe("Set exactly this x.y.z"),
+      bump: z.enum(["patch", "minor", "major"]).optional().describe("Bump instead of set (default patch if version omitted)"),
+      onlyIfBelow: z.string().optional().describe("With version: only change items currently below this version (e.g. baseline 0.0.0 items to 1.0.0)"),
+    },
+  },
+  tool(async (a: { module?: string; actions?: string[]; workflows?: string[]; version?: string; bump?: "patch" | "minor" | "major"; onlyIfBelow?: string }) => {
+    const cmp = (x: string, y: string) => {
+      const p = (v: string) => (String(v).match(/^(\d+)\.(\d+)\.(\d+)/) ?? [0, 0, 0, 0]).slice(1).map(Number);
+      const [a1, b1, c1] = p(x), [a2, b2, c2] = p(y);
+      return a1 - a2 || b1 - b2 || c1 - c2;
+    };
+    const target = (cur: string) => (a.version ? a.version : bumpVersion(cur, a.bump ?? "patch"));
+    const results: any[] = [];
+
+    const actionRefs: string[] = [...(a.actions ?? [])];
+    if (a.module) {
+      const r = await vro.call("GET", "/actions");
+      for (const i of flattenInventory(r.body)?.items ?? []) if (i.module === a.module) actionRefs.push(i.id);
+    }
+    for (const ref of [...new Set(actionRefs)]) {
+      const act = await getAction(ref);
+      const from = act.version;
+      if (a.version && a.onlyIfBelow && cmp(from, a.onlyIfBelow) >= 0) { results.push({ action: act.fqn, version: from, changed: false }); continue; }
+      const to = target(from);
+      const body: any = {
+        id: act.id, module: act.module, name: act.name, version: to, script: act.script,
+        description: act.description ?? "",
+        "input-parameters": paramDefs(pick(act, "input-parameters", "inputParameters")).map((p) => ({ name: p.name, type: p.type, description: p.description ?? "" })),
+        "output-type": pick(act, "output-type", "outputParameterType") ?? "void",
+      };
+      await vro.call("PUT", `/actions/${enc(act.id)}`, { body });
+      results.push({ action: act.fqn ?? `${act.module}/${act.name}`, from, to });
+    }
+
+    for (const w of a.workflows ?? []) {
+      const id = await resolveWorkflowId(w);
+      const c = await vro.call("GET", `/workflows/${enc(id)}/content`, { accept: "xml" });
+      const xml = String(c.body);
+      const from = (xml.match(/<schema-workflow[^>]*\sversion="([^"]*)"/) ?? [])[1] ?? "0.0.0";
+      if (a.version && a.onlyIfBelow && cmp(from, a.onlyIfBelow) >= 0) { results.push({ workflow: id, version: from, changed: false }); continue; }
+      const to = target(from);
+      const updated = xml.replace(/(<schema-workflow[^>]*\sversion=")[^"]*(")/, `$1${to}$2`);
+      await vro.call("PUT", `/workflows/${enc(id)}/content`, { body: updated, contentType: "application/xml" });
+      results.push({ workflow: id, from, to });
+    }
+    return { updated: results.filter((r) => r.changed !== false).length, results };
   })
 );
 

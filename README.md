@@ -19,8 +19,11 @@ It is spec-driven: the bundled OpenAPI file (`spec/vcfoo-9.0.0.json`, 303 operat
 | `vro_run_action` | Execute an action, returns plain JSON result + logs |
 | `vro_save_action` | Create or update (upsert) an action |
 | `vro_save_workflow` | Create/update a workflow from a compact spec (inputs, outputs, attributes, script/action/decision/end steps); creates the folder path. Attributes can preset SDK objects by inventory id, e.g. `{name:'vraHost', type:'VRA:Host', default:'<host id>'}` |
+| `vro_set_versions` | Set or bump versions of a whole action module, listed actions, or workflows (e.g. baseline everything to 1.0.0) |
 | `vro_delete_workflow` | Delete a workflow by id or name |
 | `vro_run_script` | Run an ad-hoc ES5 snippet via a temp action (auto-deleted) — for prototyping |
+
+**Versioning:** `vro_save_action` and `vro_save_workflow` always maintain versions. New objects start at `1.0.0`, and every update bumps the patch version (`1.0.0` → `1.0.1`) unless you pass `version` or `bump: minor|major`.
 
 Inputs are converted automatically from plain JSON to Orchestrator types: `string`, `number`, `boolean`, `Date`, `Properties`, `Array/x`, `SecureString`, and SDK objects. For SDK objects, pass the id string or `{type,id}`, e.g. `VC:VirtualMachine`. Outputs are converted back to plain JSON.
 
