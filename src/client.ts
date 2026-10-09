@@ -31,11 +31,26 @@ function snippet(body: unknown, n = 300): string {
   return s.replace(/\s+/g, " ").slice(0, n);
 }
 
+/** exp (seconds since epoch) of a JWT, if it is one */
+export function jwtExpiry(token: string): number | undefined {
+  try {
+    const part = token.replace(/^Bearer\s+/i, "").split(".")[1];
+    if (!part) return undefined;
+    const json = JSON.parse(Buffer.from(part.replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf8"));
+    return typeof json.exp === "number" ? json.exp : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export class OrchestratorClient {
   private dispatcher: Dispatcher;
   private authHeader?: string;
   private resolvedMode?: ResolvedMode;
   private loginInFlight?: Promise<void>;
+  /** epoch ms when the current bearer expires (if known) */
+  private expiresAt?: number;
+  private lastTokenEndpoint?: string;
 
   constructor(public cfg: Config) {
     this.dispatcher = new Agent({
@@ -47,6 +62,10 @@ export class OrchestratorClient {
 
   get authMode(): string {
     return this.resolvedMode ?? `${this.cfg.authMode} (not logged in yet)`;
+  }
+
+  get tokenExpiresAt(): string | undefined {
+    return this.expiresAt ? new Date(this.expiresAt).toISOString() : undefined;
   }
 
   // ---------- low level ----------
@@ -151,11 +170,54 @@ export class OrchestratorClient {
     throw new ApiError(`VCFA cloudapi session login failed — ${last}`, 0, undefined);
   }
 
+  /** VCF Automation API token (refresh token) -> short-lived access token via the OAuth token endpoint */
+  private async loginApiToken(): Promise<string> {
+    const rt = (this.cfg.apiToken ?? "").trim();
+    if (!rt) throw new Error('Auth mode "api-token" needs VRO_API_TOKEN (create one in VCF Automation: user menu > User Preferences > API Tokens)');
+    const org = this.cfg.org ?? "System";
+    const provider = org.toLowerCase() === "system";
+    const paths = provider
+      ? ["/oauth/provider/token", "/tm/oauth/provider/token"]
+      : [`/oauth/tenant/${encodeURIComponent(org)}/token`, `/tm/oauth/tenant/${encodeURIComponent(org)}/token`];
+    if (this.lastTokenEndpoint) paths.unshift(this.lastTokenEndpoint);
+    const tried: string[] = [];
+    for (const p of [...new Set(paths)]) {
+      const res = await this.rawFetch(`${this.cfg.authUrl}${p}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" },
+        body: new URLSearchParams({ grant_type: "refresh_token", refresh_token: rt }).toString(),
+      });
+      const data: any = await OrchestratorClient.readBody(res);
+      if (res.ok && data?.access_token) {
+        this.lastTokenEndpoint = p;
+        const ttl = Number(data.expires_in) || 0;
+        this.expiresAt = ttl ? Date.now() + ttl * 1000 : (jwtExpiry(data.access_token) ?? 0) * 1000 || undefined;
+        return `Bearer ${data.access_token}`;
+      }
+      tried.push(`${p} -> HTTP ${res.status} ${snippet(data, 200)}`);
+      if (res.status !== 404 && res.status !== 405) break;
+    }
+    throw new ApiError(`API token exchange failed (org ${org}):\n  ${tried.join("\n  ")}`, 0, undefined);
+  }
+
   private async headerFor(mode: ResolvedMode): Promise<string> {
     switch (mode) {
-      case "token":
+      case "api-token":
+        return this.loginApiToken();
+      case "token": {
         if (!this.cfg.token) throw new Error('Auth mode "token" needs VRO_TOKEN');
-        return this.cfg.token.startsWith("Bearer ") ? this.cfg.token : `Bearer ${this.cfg.token}`;
+        const raw = this.cfg.token.trim();
+        const exp = jwtExpiry(raw);
+        if (exp) {
+          this.expiresAt = exp * 1000;
+          if (exp * 1000 < Date.now()) {
+            throw new Error(
+              `VRO_TOKEN expired at ${new Date(exp * 1000).toISOString()} - paste a fresh token, or switch to VRO_AUTH_MODE=api-token with a long-lived VCF Automation API token`
+            );
+          }
+        }
+        return raw.startsWith("Bearer ") ? raw : `Bearer ${raw}`;
+      }
       case "basic": {
         const { user, pass } = this.requireCreds("basic");
         return this.basicHeader(user, pass);
@@ -178,6 +240,7 @@ export class OrchestratorClient {
   }
 
   private autoOrder(): ResolvedMode[] {
+    if (this.cfg.apiToken) return ["api-token"];
     if (this.cfg.token) return ["token"];
     const order: ResolvedMode[] = [];
     if (this.cfg.org) order.push("vcfa-cloudapi");
@@ -270,6 +333,9 @@ export class OrchestratorClient {
   }
 
   async request(method: string, p: string, opts: RequestOptions = {}): Promise<ApiResponse> {
+    // Refresh a minute before expiry when we can (api-token / password modes)
+    const renewable = this.resolvedMode && this.resolvedMode !== "token" && this.resolvedMode !== "basic";
+    if (renewable && this.expiresAt && this.expiresAt - Date.now() < 60_000) await this.login(true);
     await this.login();
     const doIt = async () => {
       const headers: Record<string, string> = {
@@ -290,6 +356,17 @@ export class OrchestratorClient {
       return this.rawFetch(this.apiUrl(p, opts.query), { method: method.toUpperCase(), headers, body });
     };
     let res = await doIt();
+    if (res.status === 401 && this.resolvedMode === "token") {
+      const exp = this.expiresAt;
+      await res.text();
+      throw new ApiError(
+        exp && exp < Date.now()
+          ? `HTTP 401 - VRO_TOKEN expired at ${new Date(exp).toISOString()}. Paste a fresh one, or use VRO_AUTH_MODE=api-token so tokens renew automatically.`
+          : "HTTP 401 - Orchestrator rejected VRO_TOKEN (wrong org/scope, revoked, or incomplete copy).",
+        401,
+        null
+      );
+    }
     if (res.status === 401 && this.resolvedMode !== "basic") {
       await res.text();
       await this.login(true);

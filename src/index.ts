@@ -260,7 +260,7 @@ async function saveAction(a: {
 
 // ---------------------------------------------------------------- server
 
-const server = new McpServer({ name: "vcf-orchestrator", version: "0.2.3" });
+const server = new McpServer({ name: "vcf-orchestrator", version: "0.3.0" });
 
 const jsonObj = z.record(z.string(), z.any());
 
@@ -296,6 +296,7 @@ server.registerTool(
     return {
       url: `${cfg.url}${cfg.apiBase}`,
       authMode: vro.authMode,
+      tokenExpiresAt: vro.tokenExpiresAt,
       about: about.ok ? about.body : `HTTP ${about.status}`,
       spec: { title: spec.title, version: spec.version, operations: spec.ops.length, file: cfg.specPath },
     };

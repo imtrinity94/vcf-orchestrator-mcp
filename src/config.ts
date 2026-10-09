@@ -1,7 +1,7 @@
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
-export type AuthMode = "auto" | "basic" | "vcfa" | "vcfa-cloudapi" | "token";
+export type AuthMode = "auto" | "basic" | "vcfa" | "vcfa-cloudapi" | "token" | "api-token";
 
 export interface Config {
   /** Host where Orchestrator answers, e.g. https://vro.vmw.lab (external) or https://auto.vmw.lab (embedded in VCF Automation) */
@@ -19,6 +19,8 @@ export interface Config {
   org?: string;
   cloudapiVersion: string;
   token?: string;
+  /** VCF Automation API token (refresh token) for "api-token" mode */
+  apiToken?: string;
   insecure: boolean;
   specPath: string;
   maxChars: number;
@@ -56,8 +58,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   apiBase = "/" + apiBase.replace(/^\/+|\/+$/g, "");
 
   const mode = (env.VRO_AUTH_MODE ?? "auto").toLowerCase() as AuthMode;
-  if (!["auto", "basic", "vcfa", "vcfa-cloudapi", "token"].includes(mode)) {
-    throw new Error(`VRO_AUTH_MODE must be one of auto|basic|vcfa|vcfa-cloudapi|token (got "${mode}")`);
+  if (!["auto", "basic", "vcfa", "vcfa-cloudapi", "token", "api-token"].includes(mode)) {
+    throw new Error(`VRO_AUTH_MODE must be one of auto|api-token|token|vcfa-cloudapi|vcfa|basic (got "${mode}")`);
   }
 
   return {
@@ -69,8 +71,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     password: env.VRO_PASSWORD,
     domain: env.VRO_DOMAIN,
     org: env.VRO_ORG,
-    cloudapiVersion: env.VRO_CLOUDAPI_VERSION ?? "40.0",
+    cloudapiVersion: env.VRO_CLOUDAPI_VERSION ?? "9.1.0",
     token: env.VRO_TOKEN,
+    apiToken: env.VRO_API_TOKEN ?? env.VRO_REFRESH_TOKEN,
     insecure: bool(env.VRO_INSECURE, false),
     specPath: env.VRO_SPEC_PATH ? path.resolve(env.VRO_SPEC_PATH) : defaultSpec,
     maxChars: Number(env.VRO_MAX_CHARS ?? 25000),
