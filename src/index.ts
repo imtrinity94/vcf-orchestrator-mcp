@@ -279,7 +279,7 @@ async function saveAction(a: {
 
 // ---------------------------------------------------------------- server
 
-const server = new McpServer({ name: "vcf-orchestrator", version: "0.5.2" });
+const server = new McpServer({ name: "vcf-orchestrator", version: "0.5.3" });
 
 const jsonObj = z.record(z.string(), z.any());
 

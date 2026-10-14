@@ -8,7 +8,7 @@
  * The refresh token is stored in the token file; the MCP server renews access tokens from it and
  * saves every rotated refresh token, so no token ever has to be pasted again.
  */
-import { Agent, fetch } from "undici";
+import { Agent, request } from "undici";
 import { randomUUID } from "node:crypto";
 import readline from "node:readline";
 import { defaultTokenFile, saveToken, tokenKey } from "./tokenStore.js";
@@ -118,14 +118,31 @@ export async function runSetup(argv: string[]): Promise<void> {
   if (!uiMode && !password) throw new Error("No password entered");
 
   const dispatcher = new Agent({ connect: { rejectUnauthorized: !insecure } });
+  // Plain HTTP request (like curl): undici fetch() adds browser headers (sec-fetch-mode etc.)
+  // that VCF Automation's session login rejects with 401.
   const req = async (method: string, path: string, headers: Record<string, string>, body?: string) => {
-    const res = await fetch(`${url}${path}`, { method, headers, body, dispatcher }).catch((e: any) => {
-      const cause = e?.cause?.code || e?.message;
+    const r = await request(`${url}${path}`, {
+      method: method as any,
+      headers: { "user-agent": "vcf-orchestrator-mcp", ...headers },
+      body,
+      dispatcher,
+    }).catch((e: any) => {
+      const cause = e?.cause?.code || e?.code || e?.message;
       throw new Error(`Cannot reach ${url}${path}: ${cause}${/CERT|SELF_SIGNED/i.test(String(cause)) ? " (use --insecure for self-signed lab certificates)" : ""}`);
     });
-    const text = await res.text();
+    const text = await r.body.text();
     let json: any = text;
     try { json = text ? JSON.parse(text) : null; } catch { /* keep text */ }
+    const h = r.headers;
+    const one = (k: string) => { const v = h[k.toLowerCase()]; return Array.isArray(v) ? v[0] : v ?? null; };
+    const res = {
+      status: r.statusCode,
+      ok: r.statusCode >= 200 && r.statusCode < 300,
+      headers: {
+        get: one,
+        getSetCookie: () => { const v = h["set-cookie"]; return Array.isArray(v) ? v : v ? [v] : []; },
+      },
+    };
     return { res, json };
   };
   const cookieOf = (res: any, name: string): string | undefined => {
