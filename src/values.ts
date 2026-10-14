@@ -43,6 +43,39 @@ function inferWire(v: unknown): any {
   return { string: { value: String(v) } };
 }
 
+/**
+ * Built-in Orchestrator inventory types. They have no "Plugin:" prefix, but on the wire they
+ * are sdk-objects like any plug-in type, e.g. a ResourceElement input is
+ *   { "sdk-object": { "type": "ResourceElement", "id": "<element id>" } }
+ */
+const BUILTIN_SDK_TYPES = new Set(
+  [
+    "ResourceElement",
+    "ResourceElementCategory",
+    "ConfigurationElement",
+    "ConfigurationElementCategory",
+    "Workflow",
+    "WorkflowCategory",
+    "WorkflowToken",
+    "Action",
+    "Module",
+    "Package",
+    "Task",
+    "Policy",
+    "PolicyTemplate",
+    "PolicyTemplateCategory",
+  ].map((t) => t.toLowerCase())
+);
+
+function toSdkObject(type: string, v: unknown): any {
+  const id = typeof v === "object" && v !== null ? (v as any).id : v;
+  const sdkType = typeof v === "object" && v !== null && (v as any).type ? (v as any).type : type;
+  if (id === undefined || id === null || String(id) === "") {
+    throw new Error(`A ${type} input needs the object's id (a string, or {id}); got ${JSON.stringify(v)}`);
+  }
+  return { "sdk-object": { type: sdkType, id: String(id) } };
+}
+
 export function toWire(type: string | undefined, v: unknown): any {
   if (isWireValue(v)) return v;
   const t = (type ?? "Any").trim();
@@ -74,11 +107,9 @@ export function toWire(type: string | undefined, v: unknown): any {
     case "any":
       return inferWire(v);
   }
-  if (t.includes(":")) {
-    // plug-in (SDK) object: accept "id", {id}, {id,type}
-    const id = typeof v === "object" && v !== null ? (v as any).id : v;
-    const sdkType = typeof v === "object" && v !== null && (v as any).type ? (v as any).type : t;
-    return { "sdk-object": { type: sdkType, id: String(id) } };
+  if (t.includes(":") || BUILTIN_SDK_TYPES.has(lt)) {
+    // plug-in (SDK) object or built-in inventory object: accept "id", {id}, {id,type}
+    return toSdkObject(t, v);
   }
   // CompositeType(...) or anything else: best effort
   return inferWire(v);

@@ -25,7 +25,7 @@ It is spec-driven: the bundled OpenAPI file (`spec/vcfoo-9.0.0.json`, 303 operat
 
 **Versioning:** `vro_save_action` and `vro_save_workflow` always maintain versions. New objects start at `1.0.0`, and every update bumps the patch version (`1.0.0` → `1.0.1`) unless you pass `version` or `bump: minor|major`.
 
-Inputs are converted automatically from plain JSON to Orchestrator types: `string`, `number`, `boolean`, `Date`, `Properties`, `Array/x`, `SecureString`, and SDK objects. For SDK objects, pass the id string or `{type,id}`, e.g. `VC:VirtualMachine`. Outputs are converted back to plain JSON.
+Inputs are converted automatically from plain JSON to Orchestrator types: `string`, `number`, `boolean`, `Date`, `Properties`, `Array/x`, `SecureString`, and SDK objects. For SDK objects, pass the id string or `{type,id}`, e.g. `VC:VirtualMachine`. Built-in inventory types without a plug-in prefix (`ResourceElement`, `ConfigurationElement`, `Workflow`, `Action`, `Module`, `Package`, their categories, and so on) are passed the same way, by id. Outputs are converted back to plain JSON.
 
 ## Quick start
 
