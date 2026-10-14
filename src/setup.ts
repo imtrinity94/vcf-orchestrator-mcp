@@ -275,9 +275,21 @@ export async function runSetup(argv: string[]): Promise<void> {
   const file = defaultTokenFile();
   saveToken(file, tokenKey(url, org), { seed: "setup", refreshToken: tokens.refresh_token, clientId: clientId!, tokenEndpoint });
   console.log(`\nSaved to ${file}\n`);
-  console.log("Claude Desktop config (env block) - no token or password needed:");
+  console.log("MCP client config (e.g. claude_desktop_config.json) - no token or password needed.");
+  console.log("Merge it into your existing \"mcpServers\" if you already have other servers:\n");
   console.log(
-    JSON.stringify({ VRO_URL: url, VRO_AUTH_MODE: "api-token", VRO_ORG: org, ...(insecure ? { VRO_INSECURE: "true" } : {}) }, null, 2)
+    JSON.stringify(
+      {
+        mcpServers: {
+          "vcf-orchestrator": {
+            command: "vcf-orchestrator-mcp",
+            env: { VRO_URL: url, VRO_AUTH_MODE: "api-token", VRO_ORG: org, ...(insecure ? { VRO_INSECURE: "true" } : {}) },
+          },
+        },
+      },
+      null,
+      2
+    )
   );
   if (vro.res.status >= 400) {
     console.log("\nNote: Orchestrator rejected the service account token. Check the service account role, or use VRO_AUTH_MODE=vcfa-cloudapi.");
