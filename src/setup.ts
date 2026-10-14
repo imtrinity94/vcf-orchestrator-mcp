@@ -39,7 +39,7 @@ function parseArgs(argv: string[]): Args {
     else if (k === "--insecure") a.insecure = true;
     else if (k === "--help" || k === "-h") {
       console.log(
-        "Usage: vcf-orchestrator-mcp setup --url https://auto.example.lab --org <org> --user <user> --name <service account name> [--role <role name, default: your own role>] [--password <pw>] [--insecure]\n" +
+        "Usage: vcf-orchestrator-mcp setup --url https://auto.example.lab --org <org> --user <user> --name <service account name> [--role "<role>[,<role>...]" (default: your own role)] [--password <pw>] [--insecure]\n" +
           "   or: vcf-orchestrator-mcp setup --url https://auto.example.lab --org <org> --client-id <service account client ID> [--insecure]\n" +
           "       (service account created in the VCF Automation UI; you approve the access request in the UI, no password needed)\n" +
           "Without --password (or VRO_PASSWORD) the password is asked for with a masked prompt. It is never stored."
@@ -194,7 +194,7 @@ export async function runSetup(argv: string[]): Promise<void> {
     "POST",
     `/oauth/tenant/${encodeURIComponent(org)}/register`,
     { Accept: "application/json;version=40.0", "Content-Type": "application/json", Authorization: `Bearer ${session}`, ...(jwtCookie ? { Cookie: `vcloud_jwt=${jwtCookie}` } : {}) },
-    JSON.stringify({ client_name: name, software_id: randomUUID(), software_version: "1.0", client_uri: "vmware.com", scope: `urn:vcloud:role:${encodeURIComponent(role)}` })
+    JSON.stringify({ client_name: name, software_id: randomUUID(), software_version: "1.0", client_uri: "vmware.com", scope: role.split(",").map((r) => r.trim()).filter(Boolean).map((r) => `urn:vcloud:role:${encodeURIComponent(r)}`).join(" ") })
   );
   clientId = reg.json?.client_id;
   if (!reg.res.ok || !clientId) throw new Error(`Registering service account failed: HTTP ${reg.res.status} ${short(reg.json)}`);
