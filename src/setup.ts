@@ -19,6 +19,7 @@ interface Args {
   user?: string;
   name?: string;
   role?: string;
+  password?: string;
   insecure?: boolean;
 }
 
@@ -32,11 +33,12 @@ function parseArgs(argv: string[]): Args {
     else if (k === "--user") { a.user = v; i++; }
     else if (k === "--name") { a.name = v; i++; }
     else if (k === "--role") { a.role = v; i++; }
+    else if (k === "--password") { a.password = v; i++; }
     else if (k === "--insecure") a.insecure = true;
     else if (k === "--help" || k === "-h") {
       console.log(
-        "Usage: vcf-orchestrator-mcp setup --url https://auto.example.lab --org <org> --user <user> --name <service account name> [--role \"Organization Administrator\"] [--insecure]\n" +
-          "The password is asked for interactively and is never stored."
+        "Usage: vcf-orchestrator-mcp setup --url https://auto.example.lab --org <org> --user <user> --name <service account name> [--role \"Organization Administrator\"] [--password <pw>] [--insecure]\n" +
+          "Without --password (or VRO_PASSWORD) the password is asked for with a masked prompt. It is never stored."
       );
       process.exit(0);
     }
@@ -44,21 +46,51 @@ function parseArgs(argv: string[]): Args {
   return a;
 }
 
-function ask(q: string, hidden = false): Promise<string> {
+function ask(q: string): Promise<string> {
   return new Promise((resolve) => {
-    const rl = readline.createInterface({ input: process.stdin, output: process.stdout, terminal: true });
-    if (hidden) {
-      const out = process.stdout as any;
-      const write = out.write.bind(out);
-      let prompted = false;
-      out.write = (chunk: any, ...rest: any[]) => {
-        if (!prompted) { prompted = true; return write(chunk, ...rest); }
-        return String(chunk).includes("\n") ? write("\n") : true;
-      };
-      rl.question(q, (ans) => { out.write = write; rl.close(); resolve(ans); });
-    } else {
-      rl.question(q, (ans) => { rl.close(); resolve(ans.trim()); });
+    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+    rl.question(q, (ans) => { rl.close(); resolve(ans.trim()); });
+  });
+}
+
+/** Masked password prompt (shows * per character). Works in Windows PowerShell/cmd and Unix terminals. */
+function askPassword(q: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const stdin = process.stdin;
+    process.stdout.write(q);
+    if (!stdin.isTTY) {
+      // piped input, e.g. echo pw | vcf-orchestrator-mcp setup ...
+      let buf = "";
+      stdin.setEncoding("utf8");
+      stdin.on("data", (d) => { buf += d; });
+      stdin.once("end", () => { process.stdout.write("\n"); resolve(buf.split(/\r?\n/)[0]); });
+      stdin.resume();
+      return;
     }
+    let pw = "";
+    const finish = () => {
+      stdin.removeListener("data", onData);
+      stdin.setRawMode(false);
+      stdin.pause();
+      process.stdout.write("\n");
+    };
+    const onData = (chunk: Buffer | string) => {
+      for (const ch of String(chunk)) {
+        if (ch === "\r" || ch === "\n") { finish(); resolve(pw); return; }
+        if (ch === "\u0003") { finish(); reject(new Error("Cancelled")); return; }
+        if (ch === "\u0008" || ch === "\u007f") {
+          if (pw.length) { pw = pw.slice(0, -1); process.stdout.write("\b \b"); }
+          continue;
+        }
+        if (ch < " ") continue;
+        pw += ch;
+        process.stdout.write("*");
+      }
+    };
+    stdin.setEncoding("utf8");
+    stdin.setRawMode(true);
+    stdin.resume();
+    stdin.on("data", onData);
   });
 }
 
@@ -76,7 +108,8 @@ export async function runSetup(argv: string[]): Promise<void> {
   const role = a.role || "Organization Administrator";
   const insecure = a.insecure ?? /^(1|true|yes)$/i.test(process.env.VRO_INSECURE ?? "");
   if (!url || !org || !user || !name) throw new Error("url, org, user and service account name are required");
-  const password = await ask(`Password for ${user}@${org}: `, true);
+  const password = a.password || process.env.VRO_PASSWORD || (await askPassword(`Password for ${user}@${org}: `));
+  if (!password) throw new Error("No password entered");
 
   const dispatcher = new Agent({ connect: { rejectUnauthorized: !insecure } });
   const req = async (method: string, path: string, headers: Record<string, string>, body?: string) => {
@@ -112,7 +145,12 @@ export async function runSetup(argv: string[]): Promise<void> {
       if (res.status === 401 || res.status === 403 || res.status === 404) break;
     }
   }
-  if (!session) throw new Error("Login failed:\n  " + tried.join("\n  "));
+  if (!session) {
+    throw new Error(
+      "Login failed:\n  " + tried.join("\n  ") +
+        `\n  401 means VCF Automation rejected ${user}@${org}: check the password, and that '${user}' is a user inside org '${org}' (not the provider administrator).`
+    );
+  }
 
   // 2. Register service account
   const reg = await req(
