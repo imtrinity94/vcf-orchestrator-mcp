@@ -20,6 +20,7 @@ interface Args {
   name?: string;
   role?: string;
   password?: string;
+  clientId?: string;
   insecure?: boolean;
 }
 
@@ -34,10 +35,13 @@ function parseArgs(argv: string[]): Args {
     else if (k === "--name") { a.name = v; i++; }
     else if (k === "--role") { a.role = v; i++; }
     else if (k === "--password") { a.password = v; i++; }
+    else if (k === "--client-id") { a.clientId = v; i++; }
     else if (k === "--insecure") a.insecure = true;
     else if (k === "--help" || k === "-h") {
       console.log(
         "Usage: vcf-orchestrator-mcp setup --url https://auto.example.lab --org <org> --user <user> --name <service account name> [--role \"Organization Administrator\"] [--password <pw>] [--insecure]\n" +
+          "   or: vcf-orchestrator-mcp setup --url https://auto.example.lab --org <org> --client-id <service account client ID> [--insecure]\n" +
+          "       (service account created in the VCF Automation UI; you approve the access request in the UI, no password needed)\n" +
           "Without --password (or VRO_PASSWORD) the password is asked for with a masked prompt. It is never stored."
       );
       process.exit(0);
@@ -103,13 +107,15 @@ export async function runSetup(argv: string[]): Promise<void> {
   const a = parseArgs(argv);
   const url = (a.url || process.env.VRO_URL || (await ask("VCF Automation URL (e.g. https://auto.vmw.lab): "))).replace(/\/+$/, "");
   const org = a.org || process.env.VRO_ORG || (await ask("Organization name: "));
-  const user = a.user || process.env.VRO_USERNAME || (await ask(`Username (without @${org}): `));
-  const name = a.name || (await ask("Service account name (shown in VCF Automation): "));
+  const uiMode = !!a.clientId;
+  const user = uiMode ? "" : a.user || process.env.VRO_USERNAME || (await ask(`Username (without @${org}): `));
+  const name = uiMode ? "" : a.name || (await ask("Service account name (shown in VCF Automation): "));
   const role = a.role || "Organization Administrator";
   const insecure = a.insecure ?? /^(1|true|yes)$/i.test(process.env.VRO_INSECURE ?? "");
-  if (!url || !org || !user || !name) throw new Error("url, org, user and service account name are required");
-  const password = a.password || process.env.VRO_PASSWORD || (await askPassword(`Password for ${user}@${org}: `));
-  if (!password) throw new Error("No password entered");
+  if (!url || !org) throw new Error("url and org are required");
+  if (!uiMode && (!user || !name)) throw new Error("user and service account name are required (or use --client-id)");
+  const password = uiMode ? "" : a.password || process.env.VRO_PASSWORD || (await askPassword(`Password for ${user}@${org}: `));
+  if (!uiMode && !password) throw new Error("No password entered");
 
   const dispatcher = new Agent({ connect: { rejectUnauthorized: !insecure } });
   const req = async (method: string, path: string, headers: Record<string, string>, body?: string) => {
@@ -131,10 +137,12 @@ export async function runSetup(argv: string[]): Promise<void> {
     return undefined;
   };
 
-  // 1. Session login
-  const basic = "Basic " + Buffer.from(`${user}@${org}:${password}`).toString("base64");
   let session: string | undefined;
   let jwtCookie: string | undefined;
+  let clientId: string | undefined = a.clientId;
+  if (!uiMode) {
+  // 1. Session login
+  const basic = "Basic " + Buffer.from(`${user}@${org}:${password}`).toString("base64");
   const tried: string[] = [];
   outer: for (const p of ["/tm/cloudapi/1.0.0/sessions", "/cloudapi/1.0.0/sessions"]) {
     for (const v of ["40.0", "9.1.0", "9.0.0"]) {
@@ -148,7 +156,9 @@ export async function runSetup(argv: string[]): Promise<void> {
   if (!session) {
     throw new Error(
       "Login failed:\n  " + tried.join("\n  ") +
-        `\n  401 means VCF Automation rejected ${user}@${org}: check the password, and that '${user}' is a user inside org '${org}' (not the provider administrator).`
+        `\n  401 means VCF Automation rejected ${user}@${org}: check the password, and that '${user}' is a local user inside org '${org}'.` +
+        `\n  Users who sign in through SSO / an identity provider cannot log in with a password here. In that case create the service account` +
+        `\n  in the VCF Automation UI and run: vcf-orchestrator-mcp setup --url ${url} --org ${org} --client-id <its client ID>${insecure ? " --insecure" : ""}`
     );
   }
 
@@ -159,10 +169,12 @@ export async function runSetup(argv: string[]): Promise<void> {
     { Accept: "application/json;version=40.0", "Content-Type": "application/json", Authorization: `Bearer ${session}`, ...(jwtCookie ? { Cookie: `vcloud_jwt=${jwtCookie}` } : {}) },
     JSON.stringify({ client_name: name, software_id: randomUUID(), software_version: "1.0", client_uri: "vmware.com", scope: `urn:vcloud:role:${encodeURIComponent(role)}` })
   );
-  const clientId: string | undefined = reg.json?.client_id;
+  clientId = reg.json?.client_id;
   if (!reg.res.ok || !clientId) throw new Error(`Registering service account failed: HTTP ${reg.res.status} ${short(reg.json)}`);
   jwtCookie = cookieOf(reg.res, "vcloud_jwt") ?? jwtCookie;
   console.log(`2/5 Service account '${name}' registered (client_id ${clientId}, role ${role})`);
+  }
+  if (!clientId) throw new Error("No client ID");
 
   // 3. Device authorization
   const dev = await req(
@@ -171,45 +183,58 @@ export async function runSetup(argv: string[]): Promise<void> {
     { Accept: "application/json", "Content-Type": "application/x-www-form-urlencoded" },
     new URLSearchParams({ client_id: clientId }).toString()
   );
+  const expiresIn = Number(dev.json?.expires_in) || 600;
+  const interval = Math.max(2, Number(dev.json?.interval) || 5);
   const deviceCode: string | undefined = dev.json?.device_code;
   const userCode: string | undefined = dev.json?.user_code;
   if (!dev.res.ok || !deviceCode || !userCode) throw new Error(`Device authorization failed: HTTP ${dev.res.status} ${short(dev.json)}`);
   console.log(`3/5 Device authorization requested (user code ${userCode})`);
 
-  // 4. Grant (as the logged-in user)
-  const grantBearer = jwtCookie ?? session;
-  const grant = await req(
-    "POST",
-    "/tm/cloudapi/1.0.0/deviceLookup/grant",
-    { accept: "*/*;version=40.0", Authorization: `Bearer ${grantBearer}`, "Content-Type": "application/json", Cookie: `vcloud_jwt=${grantBearer}` },
-    JSON.stringify({ userCode })
-  );
-  if (!grant.res.ok) {
-    throw new Error(
-      `Granting the service account failed: HTTP ${grant.res.status} ${short(grant.json)}\n` +
-        `  You can grant it in the UI instead (Access requests / Review Access Requests, code ${userCode}) and run setup again.`
+  // 4. Grant: as the logged-in user, or by you in the UI
+  let grantBearer: string | undefined = jwtCookie ?? session;
+  let granted = false;
+  if (grantBearer) {
+    const grant = await req(
+      "POST",
+      "/tm/cloudapi/1.0.0/deviceLookup/grant",
+      { accept: "*/*;version=40.0", Authorization: `Bearer ${grantBearer}`, "Content-Type": "application/json", Cookie: `vcloud_jwt=${grantBearer}` },
+      JSON.stringify({ userCode })
+    );
+    granted = grant.res.ok;
+    if (granted) console.log("4/5 Service account granted");
+    else console.log(`4/5 Automatic grant failed (HTTP ${grant.res.status} ${short(grant.json)})`);
+  }
+  if (!granted) {
+    console.log(
+      `\n    Approve it in the VCF Automation UI now: sign in to org ${org}, open the service account's access requests` +
+        `\n    (Administration > Service Accounts${dev.json?.verification_uri ? `, or ${dev.json.verification_uri}` : ""}) and grant code:  ${userCode}` +
+        `\n    Waiting up to ${Math.round(expiresIn / 60)} minutes...`
     );
   }
-  console.log("4/5 Service account granted");
 
   // 5. Token (device_code grant); retry while pending
   let tokens: any;
   let tokenEndpoint = "";
   const tokenPaths = [`/tm/oauth/tenant/${encodeURIComponent(org)}/token`, `/oauth/tenant/${encodeURIComponent(org)}/token`];
-  for (let attempt = 0; attempt < 10 && !tokens; attempt++) {
+  const deadline = Date.now() + (granted ? 30 : expiresIn) * 1000;
+  let last = "";
+  while (!tokens && Date.now() < deadline) {
     for (const p of tokenPaths) {
       const t = await req(
         "POST",
         p,
-        { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json", Cookie: `vcloud_jwt=${grantBearer}` },
+        { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json", ...(grantBearer ? { Cookie: `vcloud_jwt=${grantBearer}` } : {}) },
         new URLSearchParams({ client_id: clientId, grant_type: "urn:ietf:params:oauth:grant-type:device_code", device_code: deviceCode }).toString()
       );
       if (t.res.ok && t.json?.access_token) { tokens = t.json; tokenEndpoint = p; break; }
-      if (/authorization_pending|slow_down/i.test(short(t.json))) break;
-      if (t.res.status !== 404 && attempt === 9) throw new Error(`Token request failed: HTTP ${t.res.status} ${short(t.json)}`);
+      if (t.res.status === 404) continue;
+      last = `HTTP ${t.res.status} ${short(t.json)}`;
+      if (/authorization_pending|slow_down/i.test(last)) break;
+      if (/access_denied|expired_token|invalid_client/i.test(last)) throw new Error(`Token request failed: ${last}`);
     }
-    if (!tokens) await new Promise((r) => setTimeout(r, 3000));
+    if (!tokens) await new Promise((r) => setTimeout(r, interval * 1000));
   }
+  if (!tokens) throw new Error(`No token before the request expired${last ? ` (last answer: ${last})` : ""}. Run setup again and approve the code in time.`);
   if (!tokens?.refresh_token) throw new Error("No refresh token returned by the token endpoint");
   console.log(`5/5 Tokens issued (access token valid ${tokens.expires_in ?? "?"}s, refresh token stored)`);
 
@@ -220,7 +245,7 @@ export async function runSetup(argv: string[]): Promise<void> {
   console.log(`Check: VCF Automation IaaS API -> HTTP ${iaas.res.status}; Orchestrator /vco/api -> HTTP ${vro.res.status}`);
 
   const file = defaultTokenFile();
-  saveToken(file, tokenKey(url, org), { seed: "setup", refreshToken: tokens.refresh_token, clientId, tokenEndpoint });
+  saveToken(file, tokenKey(url, org), { seed: "setup", refreshToken: tokens.refresh_token, clientId: clientId!, tokenEndpoint });
   console.log(`\nSaved to ${file}\n`);
   console.log("Claude Desktop config (env block) - no token or password needed:");
   console.log(
