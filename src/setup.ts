@@ -39,7 +39,7 @@ function parseArgs(argv: string[]): Args {
     else if (k === "--insecure") a.insecure = true;
     else if (k === "--help" || k === "-h") {
       console.log(
-        "Usage: vcf-orchestrator-mcp setup --url https://auto.example.lab --org <org> --user <user> --name <service account name> [--role "<role>[,<role>...]" (default: your own role)] [--password <pw>] [--insecure]\n" +
+        "Usage: vcf-orchestrator-mcp setup --url https://auto.example.lab --org <org> --user <user> --name <service account name> [--role \"<role>[,<role>...]\" (default: your own role)] [--password <pw>] [--insecure]\n" +
           "   or: vcf-orchestrator-mcp setup --url https://auto.example.lab --org <org> --client-id <service account client ID> [--insecure]\n" +
           "       (service account created in the VCF Automation UI; you approve the access request in the UI, no password needed)\n" +
           "Without --password (or VRO_PASSWORD) the password is asked for with a masked prompt. It is never stored."
