@@ -37,9 +37,15 @@ Verified against **VCF Automation 9.1.1 with the embedded Orchestrator**.
    npm install -g vcf-orchestrator-mcp
    ```
 
-2. Create a **VCF Automation API token**. In VCF Automation open the user menu → **User Preferences** → **API Tokens** → *New*, and copy the token. It's long-lived; the server exchanges it for short-lived access tokens and renews them automatically.
+2. Run the one-time setup. It creates a VCF Automation **service account**, grants it, and stores its refresh token locally. The password is asked for interactively and is never stored:
 
-3. Add the server to Claude Desktop. On Windows the config file is `%APPDATA%\Claude\claude_desktop_config.json`; get there via Settings → Developer → Edit Config.
+   ```bash
+   vcf-orchestrator-mcp setup --url https://auto.example.lab --org <org> --user <user> --name <service account name> --insecure
+   ```
+
+   This follows the VCF Automation 9 token flow: session login, `/oauth/tenant/{org}/register`, `device_authorization`, `deviceLookup/grant`, then `token`. It ends by checking the new token against the VCF Automation IaaS API and Orchestrator's `/vco/api`. Use `--role` to pick a role other than Organization Administrator, and drop `--insecure` for trusted certificates.
+
+3. Add the server to Claude Desktop. No token or password goes in the config:
 
    ```json
    {
@@ -49,8 +55,7 @@ Verified against **VCF Automation 9.1.1 with the embedded Orchestrator**.
          "env": {
            "VRO_URL": "https://auto.example.lab",
            "VRO_AUTH_MODE": "api-token",
-           "VRO_API_TOKEN": "<API token>",
-           "VRO_ORG": "<your org, e.g. vmapps-org>",
+           "VRO_ORG": "<org>",
            "VRO_INSECURE": "true"
          }
        }
@@ -58,11 +63,11 @@ Verified against **VCF Automation 9.1.1 with the embedded Orchestrator**.
    }
    ```
 
-   `VRO_ORG` is the org you sign in to (`System` for the provider). Set `VRO_INSECURE` to `true` only for self-signed lab certificates.
+4. Fully quit Claude Desktop (from the system tray) and reopen it. Then ask Claude: *"run vro_server_info"*.
 
-4. Fully quit Claude Desktop (from the system tray) and reopen it. Then ask Claude: *"run vro_server_info"*. It shows the auth mode and when the current access token expires.
+**How the tokens stay valid:** access tokens last about an hour and are renewed automatically, a minute before they expire and again on any 401. VCF Automation **rotates** the refresh token on every renewal, so the server saves each new one to `~/.vcf-orchestrator-mcp/tokens.json` (override with `VRO_TOKEN_FILE`). Restarts pick up the latest token automatically. If the chain is ever broken (the service account revoked, or the file deleted), run `setup` again.
 
-**Quick test with a bearer token instead:** use `"VRO_AUTH_MODE": "token"` with `"VRO_TOKEN": "<value of Authorization: Bearer ... from the browser dev tools>"`. That token expires after about an hour and isn't renewed; the server tells you when it has expired.
+**Quick test without setup:** use `"VRO_AUTH_MODE": "token"` with `"VRO_TOKEN": "<Authorization: Bearer ... value from the browser dev tools>"`. That token expires after about an hour and isn't renewed.
 
 For Claude Code, run:
 
@@ -80,7 +85,9 @@ To run from source, `git clone` the repo and run `npm install` (which also build
 |---|---|---|
 | `VRO_URL` | — **required** | Embedded: your VCF Automation host · External: the Orchestrator appliance |
 | `VRO_AUTH_MODE` | `auto` | `api-token` (recommended) \| `token` (verified) \| `vcfa-cloudapi` \| `vcfa` \| `basic` \| `auto` |
-| `VRO_API_TOKEN` | | VCF Automation API token (refresh token) for `api-token` mode |
+| `VRO_API_TOKEN` | | Optional seed refresh token for `api-token` mode (setup stores one for you) |
+| `VRO_TOKEN_FILE` | `~/.vcf-orchestrator-mcp/tokens.json` | Where rotated refresh tokens are kept |
+| `VRO_CLIENT_ID` | | Service account client_id (setup stores it) |
 | `VRO_TOKEN` | | Short-lived bearer token for `token` mode |
 | `VRO_INSECURE` | `false` | `true` for self-signed lab certs |
 | `VRO_API_BASE` | `/vco/api` | |
@@ -97,7 +104,7 @@ To run from source, `git clone` the repo and run `npm install` (which also build
 
 These modes log in with a username and password and get a token automatically. They are **not yet verified** against VCFA 9.x.
 
-- **`vcfa-cloudapi`**: `POST /cloudapi/1.0.0/sessions[/provider]` as `user@org`, then uses the returned `x-vmware-vcloud-access-token` as the bearer token. This is the VCF Automation 9 org model. Set `VRO_ORG`.
+- **`vcfa-cloudapi`**: username and password, re-logging in automatically. It sends `POST /cloudapi/1.0.0/sessions`, falling back to `/tm/cloudapi/1.0.0/sessions` (provider: `/sessions/provider`), as `user@org`, then uses the `x-vmware-vcloud-access-token` response header as the bearer token. Set `VRO_ORG`, `VRO_USERNAME` and `VRO_PASSWORD`. This keeps the password in the config, so prefer `setup` with `api-token`.
 - **`vcfa`**: CSP login (`/csp/gateway/am/api/login`). This is the Aria Automation 8 style; VCFA 9 doesn't offer it.
 - **`basic`**: HTTP Basic auth, for external Orchestrator configured with vSphere SSO.
 - **`auto`**: tries `api-token`, then `token`, then `vcfa-cloudapi`, then `vcfa`, then `basic`.

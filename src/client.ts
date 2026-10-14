@@ -1,5 +1,6 @@
 import { Agent, fetch, type Dispatcher } from "undici";
 import type { AuthMode, Config } from "./config.js";
+import { defaultTokenFile, loadToken, saveToken, tokenKey } from "./tokenStore.js";
 
 export interface RequestOptions {
   query?: Record<string, unknown>;
@@ -140,64 +141,95 @@ export class OrchestratorClient {
     return `Bearer ${d2.token}`;
   }
 
-  /** VCF Automation 9 org (cloudapi) session: user@org basic → x-vmware-vcloud-access-token */
+  /** VCF Automation 9 session login: Basic user@org -> x-vmware-vcloud-access-token (tenant: /cloudapi, /tm/cloudapi; provider: /sessions/provider) */
   private async loginCloudApi(): Promise<string> {
     const { user, pass } = this.requireCreds("vcfa-cloudapi");
     const org = this.cfg.org ?? "System";
     // Principal is user@org. AD/UPN users (mayank@vmw.lab) become mayank@vmw.lab@Org.
-    const principal =
-      this.cfg.org || !user.includes("@")
-        ? user.toLowerCase().endsWith(`@${org.toLowerCase()}`)
-          ? user
-          : `${user}@${org}`
-        : user;
+    const principal = user.toLowerCase().endsWith(`@${org.toLowerCase()}`) ? user : `${user}@${org}`;
     const isProvider = org.toLowerCase() === "system";
-    const url = `${this.cfg.authUrl}/cloudapi/1.0.0/sessions${isProvider ? "/provider" : ""}`;
-    const versions = [...new Set([this.cfg.cloudapiVersion, "9.0.0", "40.0", "39.0", "38.0"])];
-    let last = "";
-    for (const v of versions) {
-      const res = await this.rawFetch(url, {
-        method: "POST",
-        headers: { Authorization: this.basicHeader(principal, pass), Accept: `application/json;version=${v}` },
-      });
-      const data = await OrchestratorClient.readBody(res);
-      const tok = res.headers.get("x-vmware-vcloud-access-token");
-      if (res.ok && tok) return `Bearer ${tok}`;
-      last = `HTTP ${res.status} (api version ${v}, principal ${principal}): ${snippet(data)}`;
-      // Only retry other API versions when the version itself was rejected
-      if (res.status !== 406 && res.status !== 400) break;
+    const urls = isProvider
+      ? [`${this.cfg.authUrl}/cloudapi/1.0.0/sessions/provider`, `${this.cfg.authUrl}/tm/cloudapi/1.0.0/sessions/provider`]
+      : [`${this.cfg.authUrl}/cloudapi/1.0.0/sessions`, `${this.cfg.authUrl}/tm/cloudapi/1.0.0/sessions`];
+    const versions = [...new Set([this.cfg.cloudapiVersion, "9.1.0", "9.0.0", "40.0"])];
+    const tried: string[] = [];
+    for (const url of urls) {
+      for (const v of versions) {
+        const res = await this.rawFetch(url, {
+          method: "POST",
+          headers: { Authorization: this.basicHeader(principal, pass), Accept: `application/json;version=${v}` },
+        });
+        const data = await OrchestratorClient.readBody(res);
+        const tok = res.headers.get("x-vmware-vcloud-access-token");
+        if (res.ok && tok) {
+          const exp = jwtExpiry(tok);
+          this.expiresAt = exp ? exp * 1000 : Date.now() + 25 * 60 * 1000;
+          return `Bearer ${tok}`;
+        }
+        tried.push(`${url.replace(this.cfg.authUrl, "")} v${v} -> HTTP ${res.status} ${snippet(data, 160)}`);
+        if (res.status === 401 || res.status === 403) break; // bad credentials: no point trying other versions here
+        if (res.status === 404) break; // endpoint not on this host: next url
+      }
     }
-    throw new ApiError(`VCFA cloudapi session login failed — ${last}`, 0, undefined);
+    throw new ApiError(`Session login failed for ${principal}:\n  ${tried.join("\n  ")}`, 0, undefined);
   }
 
-  /** VCF Automation API token (refresh token) -> short-lived access token via the OAuth token endpoint */
+  /** Service-account / API refresh token -> access token. Persists rotated refresh tokens so restarts keep working. */
   private async loginApiToken(): Promise<string> {
-    const rt = (this.cfg.apiToken ?? "").trim();
-    if (!rt) throw new Error('Auth mode "api-token" needs VRO_API_TOKEN (create one in VCF Automation: user menu > User Preferences > API Tokens)');
     const org = this.cfg.org ?? "System";
+    const file = defaultTokenFile();
+    const key = tokenKey(this.cfg.authUrl, org);
+    const seed = (this.cfg.apiToken ?? "").trim();
+    const stored = loadToken(file, key);
+
+    // Use the newest rotated token unless the config now holds a different (new) seed
+    let rt = seed;
+    let clientId = this.cfg.clientId;
+    if (stored && (!seed || stored.seed === seed)) {
+      rt = stored.refreshToken;
+      clientId = clientId ?? stored.clientId;
+    }
+    if (!rt) {
+      throw new Error(
+        `No refresh token for ${org}. Run once:  vcf-orchestrator-mcp setup  (creates a service account and stores its token in ${file}), or set VRO_API_TOKEN.`
+      );
+    }
+
     const provider = org.toLowerCase() === "system";
     const paths = provider
       ? ["/oauth/provider/token", "/tm/oauth/provider/token"]
       : [`/oauth/tenant/${encodeURIComponent(org)}/token`, `/tm/oauth/tenant/${encodeURIComponent(org)}/token`];
-    if (this.lastTokenEndpoint) paths.unshift(this.lastTokenEndpoint);
+    const preferred = this.lastTokenEndpoint ?? stored?.tokenEndpoint;
+    if (preferred) paths.unshift(preferred);
     const tried: string[] = [];
     for (const p of [...new Set(paths)]) {
+      const form: Record<string, string> = { grant_type: "refresh_token", refresh_token: rt };
+      if (clientId) form.client_id = clientId;
       const res = await this.rawFetch(`${this.cfg.authUrl}${p}`, {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" },
-        body: new URLSearchParams({ grant_type: "refresh_token", refresh_token: rt }).toString(),
+        body: new URLSearchParams(form).toString(),
       });
       const data: any = await OrchestratorClient.readBody(res);
       if (res.ok && data?.access_token) {
         this.lastTokenEndpoint = p;
         const ttl = Number(data.expires_in) || 0;
         this.expiresAt = ttl ? Date.now() + ttl * 1000 : (jwtExpiry(data.access_token) ?? 0) * 1000 || undefined;
+        const next = data.refresh_token && data.refresh_token !== rt ? data.refresh_token : rt;
+        try {
+          saveToken(file, key, { seed: seed || stored?.seed || "setup", refreshToken: next, clientId, tokenEndpoint: p });
+        } catch (e: any) {
+          console.error(`[vcf-orchestrator-mcp] could not save rotated refresh token to ${file}: ${e.message}`);
+        }
         return `Bearer ${data.access_token}`;
       }
       tried.push(`${p} -> HTTP ${res.status} ${snippet(data, 200)}`);
       if (res.status !== 404 && res.status !== 405) break;
     }
-    throw new ApiError(`API token exchange failed (org ${org}):\n  ${tried.join("\n  ")}`, 0, undefined);
+    const hint = tried.some((t) => /invalid_grant/i.test(t))
+      ? `\n  The refresh token was already used or revoked. Run  vcf-orchestrator-mcp setup  again to issue a new one.`
+      : "";
+    throw new ApiError(`Token refresh failed (org ${org}):\n  ${tried.join("\n  ")}${hint}`, 0, undefined);
   }
 
   private async headerFor(mode: ResolvedMode): Promise<string> {
@@ -240,7 +272,7 @@ export class OrchestratorClient {
   }
 
   private autoOrder(): ResolvedMode[] {
-    if (this.cfg.apiToken) return ["api-token"];
+    if (this.cfg.apiToken || loadToken(defaultTokenFile(), tokenKey(this.cfg.authUrl, this.cfg.org ?? "System"))) return ["api-token"];
     if (this.cfg.token) return ["token"];
     const order: ResolvedMode[] = [];
     if (this.cfg.org) order.push("vcfa-cloudapi");

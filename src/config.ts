@@ -21,6 +21,8 @@ export interface Config {
   token?: string;
   /** VCF Automation API token (refresh token) for "api-token" mode */
   apiToken?: string;
+  /** Service account client_id (optional; stored by `setup`) */
+  clientId?: string;
   insecure: boolean;
   specPath: string;
   maxChars: number;
@@ -74,6 +76,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     cloudapiVersion: env.VRO_CLOUDAPI_VERSION ?? "9.1.0",
     token: env.VRO_TOKEN,
     apiToken: env.VRO_API_TOKEN ?? env.VRO_REFRESH_TOKEN,
+    clientId: env.VRO_CLIENT_ID,
     insecure: bool(env.VRO_INSECURE, false),
     specPath: env.VRO_SPEC_PATH ? path.resolve(env.VRO_SPEC_PATH) : defaultSpec,
     maxChars: Number(env.VRO_MAX_CHARS ?? 25000),

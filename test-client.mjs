@@ -3,7 +3,7 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 
 const transport = new StdioClientTransport({
   command: "node",
-  args: ["dist/index.js"],
+  args: ["dist/cli.js"],
   env: { ...process.env, VRO_URL: "http://127.0.0.1:18443", VRO_USERNAME: "admin", VRO_PASSWORD: "pw" },
   stderr: "inherit",
 });
