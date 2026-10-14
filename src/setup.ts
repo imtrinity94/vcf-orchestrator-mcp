@@ -161,19 +161,22 @@ export async function runSetup(argv: string[]): Promise<void> {
   // 1. Session login
   const basic = "Basic " + Buffer.from(`${user}@${org}:${password}`).toString("base64");
   const tried: string[] = [];
-  outer: for (const p of ["/tm/cloudapi/1.0.0/sessions", "/cloudapi/1.0.0/sessions"]) {
+  // /cloudapi first (confirmed on VCF Automation 9.1); stop at the first 401 so a wrong password
+  // only counts once towards the account lockout
+  outer: for (const p of ["/cloudapi/1.0.0/sessions", "/tm/cloudapi/1.0.0/sessions"]) {
     for (const v of ["40.0", "9.1.0", "9.0.0"]) {
       const { res, json } = await req("POST", p, { Authorization: basic, Accept: `application/json;version=${v}` });
       const tok = res.headers.get("x-vmware-vcloud-access-token");
       if (res.ok && tok) { session = tok; jwtCookie = cookieOf(res, "vcloud_jwt"); console.log(`1/5 Logged in as ${user}@${org} (${p})`); break outer; }
       tried.push(`${p} v${v}: HTTP ${res.status} ${short(json)}`);
-      if (res.status === 401 || res.status === 403 || res.status === 404) break;
+      if (res.status === 401) break outer;
+      if (res.status === 403 || res.status === 404) break;
     }
   }
   if (!session) {
     throw new Error(
       "Login failed:\n  " + tried.join("\n  ") +
-        `\n  401 means VCF Automation rejected ${user}@${org}: check the password, and that '${user}' is a local user inside org '${org}'.` +
+        `\n  401 means VCF Automation rejected ${user}@${org}: check the password, that '${user}' is a local user inside org '${org}', and that the account is not locked.` +
         `\n  Users who sign in through SSO / an identity provider cannot log in with a password here. In that case create the service account` +
         `\n  in the VCF Automation UI and run: vcf-orchestrator-mcp setup --url ${url} --org ${org} --client-id <its client ID>${insecure ? " --insecure" : ""}`
     );
