@@ -37,13 +37,20 @@ Verified against **VCF Automation 9.1.1 with the embedded Orchestrator**.
    npm install -g vcf-orchestrator-mcp
    ```
 
-2. Run the one-time setup. It creates a VCF Automation **service account**, grants it, and stores its refresh token locally. The password is asked for interactively and is never stored:
+2. Run the one-time setup. It creates a VCF Automation **service account**, grants it, and stores its refresh token locally. The password is asked for with a masked prompt and is never stored:
 
    ```bash
    vcf-orchestrator-mcp setup --url https://auto.example.lab --org <org> --user <user> --name <service account name> --insecure
    ```
 
-   This follows the VCF Automation 9 token flow: session login, `/oauth/tenant/{org}/register`, `device_authorization`, `deviceLookup/grant`, then `token`. It ends by checking the new token against the VCF Automation IaaS API and Orchestrator's `/vco/api`. Use `--role` to pick a role other than Organization Administrator, and drop `--insecure` for trusted certificates.
+   This follows the VCF Automation 9 token flow: session login, `/oauth/tenant/{org}/register`, `device_authorization`, `deviceLookup/grant`, then `token`. It ends by checking the new token against the VCF Automation IaaS API and Orchestrator's `/vco/api`.
+
+   - `--org` is the organization **name** (the last part of `https://<host>/tenant/<name>`), not its display name.
+   - `--user` must be a **local** user of that org with an admin role. A wrong password stops after one attempt, so a typo doesn't lock the account.
+   - `--name` is the service account's display name in VCF Automation (Access Control > Service Accounts), where you can also revoke it.
+   - `--role` sets the service account's roles, comma-separated, e.g. `--role "Organization Owner,Orchestrator Administrator"`. By default it gets the logged-in user's role. **Orchestrator needs `Orchestrator Administrator`**: without it the account logs in as a plain user and sees no workflows. You can also add roles to the service account later in the UI; restart the MCP afterwards so it picks up a token with the new roles.
+   - SSO-only users can't log in with a password. Create the service account in the UI instead and run `setup --url ... --org ... --client-id <its client ID>`: setup prints a code, you grant it under *Review Access Requests*, and setup finishes on its own.
+   - `--password <pw>` (or `VRO_PASSWORD`) skips the prompt, e.g. for scripting. Drop `--insecure` for trusted certificates.
 
 3. Add the server to Claude Desktop. No token or password goes in the config:
 

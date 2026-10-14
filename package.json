@@ -1,6 +1,6 @@
 {
   "name": "vcf-orchestrator-mcp",
-  "version": "0.5.6",
+  "version": "0.6.0",
   "description": "MCP server for VCF Operations Orchestrator (vRO) 9.x — embedded in VCF Automation or standalone. Spec-driven: full REST API access plus workflow/action/script tools.",
   "main": "dist/cli.js",
   "scripts": {
