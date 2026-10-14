@@ -39,7 +39,7 @@ function parseArgs(argv: string[]): Args {
     else if (k === "--insecure") a.insecure = true;
     else if (k === "--help" || k === "-h") {
       console.log(
-        "Usage: vcf-orchestrator-mcp setup --url https://auto.example.lab --org <org> --user <user> --name <service account name> [--role \"Organization Administrator\"] [--password <pw>] [--insecure]\n" +
+        "Usage: vcf-orchestrator-mcp setup --url https://auto.example.lab --org <org> --user <user> --name <service account name> [--role <role name, default: your own role>] [--password <pw>] [--insecure]\n" +
           "   or: vcf-orchestrator-mcp setup --url https://auto.example.lab --org <org> --client-id <service account client ID> [--insecure]\n" +
           "       (service account created in the VCF Automation UI; you approve the access request in the UI, no password needed)\n" +
           "Without --password (or VRO_PASSWORD) the password is asked for with a masked prompt. It is never stored."
@@ -110,7 +110,7 @@ export async function runSetup(argv: string[]): Promise<void> {
   const uiMode = !!a.clientId;
   const user = uiMode ? "" : a.user || process.env.VRO_USERNAME || (await ask(`Username (without @${org}): `));
   const name = uiMode ? "" : a.name || (await ask("Service account name (shown in VCF Automation): "));
-  const role = a.role || "Organization Administrator";
+  let role = a.role || "";
   const insecure = a.insecure ?? /^(1|true|yes)$/i.test(process.env.VRO_INSECURE ?? "");
   if (!url || !org) throw new Error("url and org are required");
   if (!uiMode && (!user || !name)) throw new Error("user and service account name are required (or use --client-id)");
@@ -167,7 +167,14 @@ export async function runSetup(argv: string[]): Promise<void> {
     for (const v of ["40.0", "9.1.0", "9.0.0"]) {
       const { res, json } = await req("POST", p, { Authorization: basic, Accept: `application/json;version=${v}` });
       const tok = res.headers.get("x-vmware-vcloud-access-token");
-      if (res.ok && tok) { session = tok; jwtCookie = cookieOf(res, "vcloud_jwt"); console.log(`1/5 Logged in as ${user}@${org} (${p})`); break outer; }
+      if (res.ok && tok) {
+        session = tok;
+        jwtCookie = cookieOf(res, "vcloud_jwt");
+        // default the service account role to the logged-in user's role (role names differ per org, e.g. "Organization Owner")
+        if (!role) role = (Array.isArray(json?.roles) && json.roles[0]) || json?.roleRefs?.[0]?.name || "Organization Administrator";
+        console.log(`1/5 Logged in as ${user}@${org} (${p}, role ${Array.isArray(json?.roles) ? json.roles.join(", ") : "?"})`);
+        break outer;
+      }
       tried.push(`${p} v${v}: HTTP ${res.status} ${short(json)}`);
       if (res.status === 401) break outer;
       if (res.status === 403 || res.status === 404) break;
@@ -195,6 +202,7 @@ export async function runSetup(argv: string[]): Promise<void> {
   console.log(`2/5 Service account '${name}' registered (client_id ${clientId}, role ${role})`);
   }
   if (!clientId) throw new Error("No client ID");
+  if (!role) role = "Organization Administrator";
 
   // 3. Device authorization
   const dev = await req(
