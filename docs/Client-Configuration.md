@@ -1,6 +1,6 @@
 # Client Configuration
 
-After [[setup|Setup-and-Service-Account]], add the server to your MCP client. The config holds only the URL, auth mode, org and certificate setting. **No password or token goes in it.**
+After [setup](Setup-and-Service-Account.md), add the server to your MCP client. The config holds only the URL, auth mode, org and certificate setting. **No password or token goes in it.**
 
 Replace `https://auto.vmw.lab` and `vmapps-org` with your own values, and leave out `VRO_INSECURE` if your certificates are trusted.
 
@@ -98,7 +98,7 @@ Add to `.vscode/mcp.json` in your workspace. Note that VS Code uses `servers`, n
 
 ## Other clients
 
-Any client that runs local (stdio) MCP servers works: start the command `vcf-orchestrator-mcp` with the four environment variables above. All settings are listed in [[Configuration Reference|Configuration-Reference]].
+Any client that runs local (stdio) MCP servers works: start the command `vcf-orchestrator-mcp` with the four environment variables above. All settings are listed in [Configuration Reference](Configuration-Reference.md).
 
 ## Test it
 
@@ -106,7 +106,7 @@ Ask your assistant:
 
 > Run vro_server_info and tell me which Orchestrator I'm connected to.
 
-You should see the Orchestrator version, `authMode: api-token` and when the current access token expires. If it reports `LOGIN FAILED`, see [[Troubleshooting]].
+You should see the Orchestrator version, `authMode: api-token` and when the current access token expires. If it reports `LOGIN FAILED`, see [Troubleshooting](Troubleshooting.md).
 
 ## One machine, one token file
 

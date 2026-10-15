@@ -8,9 +8,9 @@ It works with the Orchestrator **embedded in VCF Automation 9** and with a **sta
 
 ## Start here
 
-1. [[Installation]]: install the package.
-2. [[Setup and Service Account|Setup-and-Service-Account]]: the one-time setup that creates a VCF Automation service account.
-3. [[Client Configuration|Client-Configuration]]: add the server to Claude Desktop, Claude Code, Cursor or VS Code.
+1. [Installation](Installation.md): install the package.
+2. [Setup and Service Account](Setup-and-Service-Account.md): the one-time setup that creates a VCF Automation service account.
+3. [Client Configuration](Client-Configuration.md): add the server to Claude Desktop, Claude Code, Cursor or VS Code.
 4. Ask your assistant: *"Run vro_server_info and tell me which Orchestrator I'm connected to."*
 
 Prefer to watch? The [blog post](https://cloudblogger.co.in/2026/10/14/vcf-orchestrator-mcp-claude-for-vcf-operations-orchestrator/) has a setup and demo video.
@@ -19,15 +19,15 @@ Prefer to watch? The [blog post](https://cloudblogger.co.in/2026/10/14/vcf-orche
 
 | Page | What's in it |
 |---|---|
-| [[Installation]] | Requirements and install options (npm, from source) |
-| [[Setup and Service Account|Setup-and-Service-Account]] | The `setup` command, its options, and what it does |
-| [[Client Configuration|Client-Configuration]] | Config for Claude Desktop, Claude Code, Cursor, VS Code |
-| [[Tools Reference|Tools-Reference]] | Every tool and its main parameters |
-| [[Token Refresh|Token-Refresh]] | How the login stays valid without pasting tokens |
-| [[Configuration Reference|Configuration-Reference]] | Every `VRO_*` environment variable and all auth modes |
-| [[Examples and Prompts|Examples-and-Prompts]] | Prompts to try and worked walkthroughs |
-| [[Troubleshooting]] | Error messages and how to fix them |
-| [[FAQ]] | Common questions |
+| [Installation](Installation.md) | Requirements and install options (npm, from source) |
+| [Setup and Service Account](Setup-and-Service-Account.md) | The `setup` command, its options, and what it does |
+| [Client Configuration](Client-Configuration.md) | Config for Claude Desktop, Claude Code, Cursor, VS Code |
+| [Tools Reference](Tools-Reference.md) | Every tool and its main parameters |
+| [Token Refresh](Token-Refresh.md) | How the login stays valid without pasting tokens |
+| [Configuration Reference](Configuration-Reference.md) | Every `VRO_*` environment variable and all auth modes |
+| [Examples and Prompts](Examples-and-Prompts.md) | Prompts to try and worked walkthroughs |
+| [Troubleshooting](Troubleshooting.md) | Error messages and how to fix them |
+| [FAQ](FAQ.md) | Common questions |
 
 ## Links
 

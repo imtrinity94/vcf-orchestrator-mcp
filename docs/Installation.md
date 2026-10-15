@@ -5,7 +5,7 @@
 - **Node.js 18.17 or newer** on the machine that runs your AI client. Check with `node --version`.
 - An **MCP-capable client**: Claude Desktop, Claude Code, Cursor, VS Code with GitHub Copilot, or similar.
 - Network access from that machine to your **VCF Automation** host (or standalone Orchestrator) over HTTPS.
-- For the recommended login: a VCF Automation 9 organization with a **local** user that has an admin role in that org. See [[Setup and Service Account|Setup-and-Service-Account]].
+- For the recommended login: a VCF Automation 9 organization with a **local** user that has an admin role in that org. See [Setup and Service Account](Setup-and-Service-Account.md).
 
 ## Install from npm (recommended)
 
@@ -42,10 +42,10 @@ npm install
 `npm install` also builds the project into `dist/`. Then:
 
 - run setup with `node dist/cli.js setup ...`
-- point your client at `node` with the argument `<path>/vcf-orchestrator-mcp/dist/cli.js` (see [[Client Configuration|Client-Configuration]])
+- point your client at `node` with the argument `<path>/vcf-orchestrator-mcp/dist/cli.js` (see [Client Configuration](Client-Configuration.md))
 
 To update a source install, run `git pull` and `npm install` again.
 
 ## Next step
 
-[[Setup and Service Account|Setup-and-Service-Account]]
+[Setup and Service Account](Setup-and-Service-Account.md)

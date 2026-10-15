@@ -7,7 +7,7 @@ VCF Operations Orchestrator 9.x, embedded in VCF Automation 9 or standalone. It'
 Not tested. The REST API is largely the same, and the `vcfa` auth mode uses the Aria Automation 8 CSP login, but this hasn't been verified.
 
 **Which AI clients can I use?**
-Any MCP client that runs local (stdio) servers: Claude Desktop, Claude Code, Cursor, VS Code with GitHub Copilot, and others. See [[Client Configuration|Client-Configuration]].
+Any MCP client that runs local (stdio) servers: Claude Desktop, Claude Code, Cursor, VS Code with GitHub Copilot, and others. See [Client Configuration](Client-Configuration.md).
 
 **Does my password get stored anywhere?**
 No. Setup uses it once to log in and create the service account. Only the service account's refresh token is stored, in `~/.vcf-orchestrator-mcp/tokens.json`.
@@ -25,7 +25,7 @@ Give the service account fewer roles, use a separate service account per environ
 Delete or disable the service account in **Access Control > Service Accounts**. The MCP stops working immediately.
 
 **Can I use it on two machines?**
-Yes, but run setup on each machine. Don't copy the token file; see [[Token Refresh|Token-Refresh]].
+Yes, but run setup on each machine. Don't copy the token file; see [Token Refresh](Token-Refresh.md).
 
 **Why does the IaaS API check in setup return 403?**
 The check tests the VCF Automation IaaS API as well as Orchestrator. Depending on the roles, IaaS can return 403. Only the Orchestrator check needs to be 200.

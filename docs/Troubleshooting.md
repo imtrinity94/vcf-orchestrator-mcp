@@ -13,7 +13,7 @@ Start with `vro_server_info`. It shows the auth mode, the token expiry, and on f
 | `Check: ... Orchestrator /vco/api -> HTTP 401/403` | The service account has no Orchestrator rights. Add **Orchestrator Administrator** to it and restart your client. |
 | `Check: VCF Automation IaaS API -> HTTP 403` | Expected with some roles. It doesn't affect the Orchestrator MCP. |
 | Certificate errors (`SELF_SIGNED_CERT_IN_CHAIN`, `UNABLE_TO_VERIFY_LEAF_SIGNATURE`) | Self-signed lab certificate. Add `--insecure` to setup and `"VRO_INSECURE": "true"` to the client config. |
-| SSO-only org, no local user | Use the `--client-id` flow: [[Setup and Service Account|Setup-and-Service-Account#sso-only-orgs]]. |
+| SSO-only org, no local user | Use the `--client-id` flow: [Setup and Service Account](Setup-and-Service-Account.md#sso-only-orgs). |
 | `fatal: not a git repository` while updating a source install | You're not in the project folder. `cd` into it first. |
 | `git pull` refuses because `package-lock.json` changed | npm rewrote it. `git checkout -- package-lock.json`, then `git pull`. |
 
@@ -21,7 +21,7 @@ Start with `vro_server_info`. It shows the auth mode, the token expiry, and on f
 
 | Symptom | Cause and fix |
 |---|---|
-| The tools don't appear in the client | The client wasn't fully restarted, the JSON has a syntax error, or the command isn't found. Quit the client completely (system tray / menu bar too). On Windows, use the `node` + `cli.js` form from [[Client Configuration|Client-Configuration]]. |
+| The tools don't appear in the client | The client wasn't fully restarted, the JSON has a syntax error, or the command isn't found. Quit the client completely (system tray / menu bar too). On Windows, use the `node` + `cli.js` form from [Client Configuration](Client-Configuration.md). |
 | The server times out on start | Use a global install instead of `npx`, so it starts quickly. |
 | `LOGIN FAILED` / `No refresh token for <org>` | Setup hasn't run on this machine, or `VRO_ORG` / `VRO_URL` don't match what you used in setup. The token is stored per host and org. |
 | `The refresh token was already used or revoked` / `invalid_grant` | The token chain is broken: service account revoked, token file deleted, or the file copied to another machine. Run setup again. |

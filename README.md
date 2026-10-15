@@ -4,7 +4,7 @@ MCP server that lets your AI assistant work directly with **VCF Operations Orche
 
 It works with any MCP client: Claude Desktop, Claude Code, Cursor, VS Code with GitHub Copilot, and others.
 
-📖 **Full documentation: [the wiki](https://github.com/imtrinity94/vcf-orchestrator-mcp/wiki)** · 📝 [Blog post with demo video](https://cloudblogger.co.in/2026/10/14/vcf-orchestrator-mcp-claude-for-vcf-operations-orchestrator/)
+📖 **Full documentation: [docs](docs/README.md)** · 📝 [Blog post with demo video](https://cloudblogger.co.in/2026/10/14/vcf-orchestrator-mcp-claude-for-vcf-operations-orchestrator/)
 
 ## Quick start
 
@@ -20,7 +20,7 @@ It works with any MCP client: Claude Desktop, Claude Code, Cursor, VS Code with 
    vcf-orchestrator-mcp setup --url https://auto.example.lab --org <org name> --user <local admin> --name <service account name> --role "Organization Owner,Orchestrator Administrator" --insecure
    ```
 
-   `--org` is the org **name** from `https://<host>/tenant/<name>`. The service account needs the **Orchestrator Administrator** role. Details and options: [Setup and Service Account](https://github.com/imtrinity94/vcf-orchestrator-mcp/wiki/Setup-and-Service-Account).
+   `--org` is the org **name** from `https://<host>/tenant/<name>`. The service account needs the **Orchestrator Administrator** role. Details and options: [Setup and Service Account](docs/Setup-and-Service-Account.md).
 
 3. **Add it to your client.** Setup prints this block; no password or token goes in it:
 
@@ -40,11 +40,11 @@ It works with any MCP client: Claude Desktop, Claude Code, Cursor, VS Code with 
    }
    ```
 
-   Claude Code, Cursor and VS Code: [Client Configuration](https://github.com/imtrinity94/vcf-orchestrator-mcp/wiki/Client-Configuration).
+   Claude Code, Cursor and VS Code: [Client Configuration](docs/Client-Configuration.md).
 
 4. **Fully restart your client**, then ask: *"Run vro_server_info and tell me which Orchestrator I'm connected to."*
 
-The server renews its token by itself, so you never paste tokens: [Token Refresh](https://github.com/imtrinity94/vcf-orchestrator-mcp/wiki/Token-Refresh).
+The server renews its token by itself, so you never paste tokens: [Token Refresh](docs/Token-Refresh.md).
 
 ## Tools
 
@@ -60,25 +60,25 @@ The server renews its token by itself, so you never paste tokens: [Token Refresh
 | `vro_delete_workflow` | Delete a workflow |
 | `vro_api_search`, `vro_api_describe`, `vro_api_call` | Reach the full Orchestrator REST API (303 operations) |
 
-Parameters for each: [Tools Reference](https://github.com/imtrinity94/vcf-orchestrator-mcp/wiki/Tools-Reference).
+Parameters for each: [Tools Reference](docs/Tools-Reference.md).
 
 ## Documentation
 
 | Page | What's in it |
 |---|---|
-| [Installation](https://github.com/imtrinity94/vcf-orchestrator-mcp/wiki/Installation) | Requirements, npm and source installs, updating |
-| [Setup and Service Account](https://github.com/imtrinity94/vcf-orchestrator-mcp/wiki/Setup-and-Service-Account) | The setup command, roles, SSO-only orgs |
-| [Client Configuration](https://github.com/imtrinity94/vcf-orchestrator-mcp/wiki/Client-Configuration) | Claude Desktop, Claude Code, Cursor, VS Code |
-| [Configuration Reference](https://github.com/imtrinity94/vcf-orchestrator-mcp/wiki/Configuration-Reference) | All `VRO_*` variables and auth modes |
-| [Examples and Prompts](https://github.com/imtrinity94/vcf-orchestrator-mcp/wiki/Examples-and-Prompts) | Prompts to try and worked walkthroughs |
-| [Troubleshooting](https://github.com/imtrinity94/vcf-orchestrator-mcp/wiki/Troubleshooting) | Error messages and fixes |
-| [FAQ](https://github.com/imtrinity94/vcf-orchestrator-mcp/wiki/FAQ) | Common questions |
+| [Installation](docs/Installation.md) | Requirements, npm and source installs, updating |
+| [Setup and Service Account](docs/Setup-and-Service-Account.md) | The setup command, roles, SSO-only orgs |
+| [Client Configuration](docs/Client-Configuration.md) | Claude Desktop, Claude Code, Cursor, VS Code |
+| [Configuration Reference](docs/Configuration-Reference.md) | All `VRO_*` variables and auth modes |
+| [Examples and Prompts](docs/Examples-and-Prompts.md) | Prompts to try and worked walkthroughs |
+| [Troubleshooting](docs/Troubleshooting.md) | Error messages and fixes |
+| [FAQ](docs/FAQ.md) | Common questions |
 
 ## Also in this repo
 
 - [`skill/vcf-orchestrator-mcp`](skill/vcf-orchestrator-mcp): a free agent skill that teaches agents how to use these tools well.
 - [`examples/onboard-vms-by-name.workflow.json`](examples/onboard-vms-by-name.workflow.json): a full `vro_save_workflow` spec, run end to end on VCF Automation 9.1.1.
-- [`wiki/`](wiki): the source of the wiki pages.
+- [`docs/`](docs): the full documentation.
 
 ## Development
 

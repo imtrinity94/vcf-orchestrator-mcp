@@ -70,7 +70,7 @@ Merge it into your existing "mcpServers" if you already have other servers:
 
 The check that matters is **`Orchestrator /vco/api -> HTTP 200`**: Orchestrator accepts the service account's token. The IaaS API check can return 403 without affecting the Orchestrator MCP.
 
-Copy the printed config into your client: [[Client Configuration|Client-Configuration]].
+Copy the printed config into your client: [Client Configuration](Client-Configuration.md).
 
 ## What setup does
 
@@ -82,7 +82,7 @@ Setup runs the VCF Automation 9 service-account flow described in [End-to-end VC
 4. **Grant** the user code as the logged-in admin, with `POST /tm/cloudapi/1.0.0/deviceLookup/grant`.
 5. **Get the tokens** with `POST /tm/oauth/tenant/{org}/token` and `grant_type=urn:ietf:params:oauth:grant-type:device_code`.
 
-The refresh token and the service account's client ID are saved to `~/.vcf-orchestrator-mcp/tokens.json` (on Windows `C:\Users\<you>\.vcf-orchestrator-mcp\tokens.json`). How it stays valid: [[Token Refresh|Token-Refresh]].
+The refresh token and the service account's client ID are saved to `~/.vcf-orchestrator-mcp/tokens.json` (on Windows `C:\Users\<you>\.vcf-orchestrator-mcp\tokens.json`). How it stays valid: [Token Refresh](Token-Refresh.md).
 
 ## Roles
 
@@ -111,4 +111,4 @@ Setup overwrites the saved token for that host and org. Delete the old service a
 
 ## Next step
 
-[[Client Configuration|Client-Configuration]]
+[Client Configuration](Client-Configuration.md)

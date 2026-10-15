@@ -1,6 +1,6 @@
 # Configuration Reference
 
-The server is configured with environment variables, set in the `env` block of your [[client config|Client-Configuration]].
+The server is configured with environment variables, set in the `env` block of your [client config](Client-Configuration.md).
 
 ## Environment variables
 
@@ -28,7 +28,7 @@ The server is configured with environment variables, set in the `env` block of y
 
 | Mode | Status | How it logs in | Use it when |
 |---|---|---|---|
-| `api-token` | **Recommended, verified** on VCF Automation 9.1.1 | Service account refresh token from [[setup|Setup-and-Service-Account]], renewed automatically ([[Token Refresh|Token-Refresh]]) | Always, unless you have a reason not to |
+| `api-token` | **Recommended, verified** on VCF Automation 9.1.1 | Service account refresh token from [setup](Setup-and-Service-Account.md), renewed automatically ([Token Refresh](Token-Refresh.md)) | Always, unless you have a reason not to |
 | `token` | Verified | A bearer token you paste into `VRO_TOKEN`. Expires after about an hour and is not renewed. | A quick test without setup |
 | `vcfa-cloudapi` | Not yet verified | Username and password: `POST /cloudapi/1.0.0/sessions` (fallback `/tm/cloudapi/...`, provider `/sessions/provider`) as `user@org`; uses the `x-vmware-vcloud-access-token` header. Logs in again when needed. | You can't use a service account. Keeps the password in the config. |
 | `vcfa` | Legacy | CSP login (`/csp/gateway/am/api/login`), the Aria Automation 8 style | Aria Automation 8.x. VCF Automation 9 doesn't offer it. |
