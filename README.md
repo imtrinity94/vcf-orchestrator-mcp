@@ -1,58 +1,28 @@
 # vcf-orchestrator-mcp
 
-MCP server that lets Claude work directly with **VCF Operations Orchestrator (vRO) 9.x**. It works both **embedded in VCF Automation** and **external/standalone** (the All Apps case).
+MCP server that lets your AI assistant work directly with **VCF Operations Orchestrator (vRO) 9.x**: find and read workflows, create and update actions and workflows, run them, and read executions and logs. It works with the Orchestrator **embedded in VCF Automation 9** and with a **standalone** Orchestrator, and has been verified on VCF Automation 9.1.1.
 
-It is spec-driven: the bundled OpenAPI file (`spec/vcfoo-9.0.0.json`, 303 operations) is indexed at startup. That gives Claude the whole REST API through 3 generic tools, without registering 300 tools. On top of those sit curated tools for day-to-day work.
+It works with any MCP client: Claude Desktop, Claude Code, Cursor, VS Code with GitHub Copilot, and others.
 
-## Tools
-
-| Tool | What it does |
-|---|---|
-| `vro_server_info` | Connectivity check: login, `/about`, auth mode chosen, spec loaded |
-| `vro_api_search` | Keyword search over all API operations → operationIds |
-| `vro_api_describe` | Params + request/response schema for one operation (`$ref`s resolved) |
-| `vro_api_call` | Call **any** endpoint by operationId or method+path (full access) |
-| `vro_find_workflows` / `vro_get_workflow` | Find workflows, see inputs/outputs |
-| `vro_run_workflow` | Run by id **or name** with plain JSON inputs; waits, returns outputs, error, logs |
-| `vro_get_execution` / `vro_list_executions` | Inspect runs, logs, optional wait |
-| `vro_find_actions` / `vro_get_action` | Find actions, read script / inputs / return type |
-| `vro_run_action` | Execute an action, returns plain JSON result + logs |
-| `vro_save_action` | Create or update (upsert) an action |
-| `vro_save_workflow` | Create/update a workflow from a compact spec (inputs, outputs, attributes, script/action/decision/end steps); creates the folder path. Attributes can preset SDK objects by inventory id, e.g. `{name:'vraHost', type:'VRA:Host', default:'<host id>'}` |
-| `vro_set_versions` | Set or bump versions of a whole action module, listed actions, or workflows (e.g. baseline everything to 1.0.0) |
-| `vro_delete_workflow` | Delete a workflow by id or name |
-| `vro_run_script` | Run an ad-hoc ES5 snippet via a temp action (auto-deleted) — for prototyping |
-
-**Versioning:** `vro_save_action` and `vro_save_workflow` always maintain versions. New objects start at `1.0.0`, and every update bumps the patch version (`1.0.0` → `1.0.1`) unless you pass `version` or `bump: minor|major`.
-
-Inputs are converted automatically from plain JSON to Orchestrator types: `string`, `number`, `boolean`, `Date`, `Properties`, `Array/x`, `SecureString`, and SDK objects. For SDK objects, pass the id string or `{type,id}`, e.g. `VC:VirtualMachine`. Built-in inventory types without a plug-in prefix (`ResourceElement`, `ConfigurationElement`, `Workflow`, `Action`, `Module`, `Package`, their categories, and so on) are passed the same way, by id. Outputs are converted back to plain JSON.
+📖 **Full documentation: [the wiki](https://github.com/imtrinity94/vcf-orchestrator-mcp/wiki)** · 📝 [Blog post with demo video](https://cloudblogger.co.in/2026/10/14/vcf-orchestrator-mcp-claude-for-vcf-operations-orchestrator/)
 
 ## Quick start
 
-Verified against **VCF Automation 9.1.1 with the embedded Orchestrator**.
-
-1. Install it once globally (Node 18.17+):
+1. **Install** (Node.js 18.17+):
 
    ```bash
    npm install -g vcf-orchestrator-mcp
    ```
 
-2. Run the one-time setup. It creates a VCF Automation **service account**, grants it, and stores its refresh token locally. The password is asked for with a masked prompt and is never stored:
+2. **Run the one-time setup.** It creates a VCF Automation service account and stores its refresh token on your machine. The password is asked for with a masked prompt and never stored.
 
    ```bash
-   vcf-orchestrator-mcp setup --url https://auto.example.lab --org <org> --user <user> --name <service account name> --insecure
+   vcf-orchestrator-mcp setup --url https://auto.example.lab --org <org name> --user <local admin> --name <service account name> --role "Organization Owner,Orchestrator Administrator" --insecure
    ```
 
-   This follows the VCF Automation 9 token flow: session login, `/oauth/tenant/{org}/register`, `device_authorization`, `deviceLookup/grant`, then `token`. It ends by checking the new token against the VCF Automation IaaS API and Orchestrator's `/vco/api`.
+   `--org` is the org **name** from `https://<host>/tenant/<name>`. The service account needs the **Orchestrator Administrator** role. Details and options: [Setup and Service Account](https://github.com/imtrinity94/vcf-orchestrator-mcp/wiki/Setup-and-Service-Account).
 
-   - `--org` is the organization **name** (the last part of `https://<host>/tenant/<name>`), not its display name.
-   - `--user` must be a **local** user of that org with an admin role. A wrong password stops after one attempt, so a typo doesn't lock the account.
-   - `--name` is the service account's display name in VCF Automation (Access Control > Service Accounts), where you can also revoke it.
-   - `--role` sets the service account's roles, comma-separated, e.g. `--role "Organization Owner,Orchestrator Administrator"`. By default it gets the logged-in user's role. **Orchestrator needs `Orchestrator Administrator`**: without it the account logs in as a plain user and sees no workflows. You can also add roles to the service account later in the UI; restart the MCP afterwards so it picks up a token with the new roles.
-   - SSO-only users can't log in with a password. Create the service account in the UI instead and run `setup --url ... --org ... --client-id <its client ID>`: setup prints a code, you grant it under *Review Access Requests*, and setup finishes on its own.
-   - `--password <pw>` (or `VRO_PASSWORD`) skips the prompt, e.g. for scripting. Drop `--insecure` for trusted certificates.
-
-3. Add the server to Claude Desktop. No token or password goes in the config:
+3. **Add it to your client.** Setup prints this block; no password or token goes in it:
 
    ```json
    {
@@ -62,7 +32,7 @@ Verified against **VCF Automation 9.1.1 with the embedded Orchestrator**.
          "env": {
            "VRO_URL": "https://auto.example.lab",
            "VRO_AUTH_MODE": "api-token",
-           "VRO_ORG": "<org>",
+           "VRO_ORG": "<org name>",
            "VRO_INSECURE": "true"
          }
        }
@@ -70,77 +40,57 @@ Verified against **VCF Automation 9.1.1 with the embedded Orchestrator**.
    }
    ```
 
-4. Fully quit Claude Desktop (from the system tray) and reopen it. Then ask Claude: *"run vro_server_info"*.
+   Claude Code, Cursor and VS Code: [Client Configuration](https://github.com/imtrinity94/vcf-orchestrator-mcp/wiki/Client-Configuration).
 
-**How the tokens stay valid:** access tokens last about an hour and are renewed automatically, a minute before they expire and again on any 401. VCF Automation **rotates** the refresh token on every renewal, so the server saves each new one to `~/.vcf-orchestrator-mcp/tokens.json` (override with `VRO_TOKEN_FILE`). Restarts pick up the latest token automatically. If the chain is ever broken (the service account revoked, or the file deleted), run `setup` again.
+4. **Fully restart your client**, then ask: *"Run vro_server_info and tell me which Orchestrator I'm connected to."*
 
-**Quick test without setup:** use `"VRO_AUTH_MODE": "token"` with `"VRO_TOKEN": "<Authorization: Bearer ... value from the browser dev tools>"`. That token expires after about an hour and isn't renewed.
+The server renews its token by itself, so you never paste tokens: [Token Refresh](https://github.com/imtrinity94/vcf-orchestrator-mcp/wiki/Token-Refresh).
 
-For Claude Code, run:
+## Tools
 
-```bash
-claude mcp add vcf-orchestrator -e VRO_URL=https://auto.example.lab -e VRO_AUTH_MODE=token -e VRO_TOKEN=eyJ... -e VRO_INSECURE=true -- vcf-orchestrator-mcp
-```
+| Tool | What it does |
+|---|---|
+| `vro_server_info` | Connectivity check: version, auth mode, token expiry |
+| `vro_find_workflows`, `vro_get_workflow` | Find workflows, read inputs and outputs |
+| `vro_run_workflow`, `vro_get_execution`, `vro_list_executions` | Run workflows with plain JSON inputs, read state, outputs and logs |
+| `vro_find_actions`, `vro_get_action`, `vro_run_action` | Find, read and run actions |
+| `vro_save_action`, `vro_save_workflow` | Create or update actions and workflows; versions are bumped automatically |
+| `vro_run_script` | Run a quick ES5 snippet via a temporary action |
+| `vro_set_versions` | Set or bump versions of actions and workflows |
+| `vro_delete_workflow` | Delete a workflow |
+| `vro_api_search`, `vro_api_describe`, `vro_api_call` | Reach the full Orchestrator REST API (303 operations) |
 
-**Avoid `npx -y vcf-orchestrator-mcp` in Claude Desktop.** `npx` re-checks the registry on every launch, and on Windows that can take longer than Claude Desktop waits for the first handshake, so the server shows as failed. Install globally instead. To upgrade, run `npm update -g vcf-orchestrator-mcp`.
+Parameters for each: [Tools Reference](https://github.com/imtrinity94/vcf-orchestrator-mcp/wiki/Tools-Reference).
 
-To run from source, `git clone` the repo and run `npm install` (which also builds it), then use `"command": "node", "args": ["<path>/dist/index.js"]`.
+## Documentation
 
-## Configuration (environment variables)
+| Page | What's in it |
+|---|---|
+| [Installation](https://github.com/imtrinity94/vcf-orchestrator-mcp/wiki/Installation) | Requirements, npm and source installs, updating |
+| [Setup and Service Account](https://github.com/imtrinity94/vcf-orchestrator-mcp/wiki/Setup-and-Service-Account) | The setup command, roles, SSO-only orgs |
+| [Client Configuration](https://github.com/imtrinity94/vcf-orchestrator-mcp/wiki/Client-Configuration) | Claude Desktop, Claude Code, Cursor, VS Code |
+| [Configuration Reference](https://github.com/imtrinity94/vcf-orchestrator-mcp/wiki/Configuration-Reference) | All `VRO_*` variables and auth modes |
+| [Examples and Prompts](https://github.com/imtrinity94/vcf-orchestrator-mcp/wiki/Examples-and-Prompts) | Prompts to try and worked walkthroughs |
+| [Troubleshooting](https://github.com/imtrinity94/vcf-orchestrator-mcp/wiki/Troubleshooting) | Error messages and fixes |
+| [FAQ](https://github.com/imtrinity94/vcf-orchestrator-mcp/wiki/FAQ) | Common questions |
 
-| Var | Default | Notes |
-|---|---|---|
-| `VRO_URL` | — **required** | Embedded: your VCF Automation host · External: the Orchestrator appliance |
-| `VRO_AUTH_MODE` | `auto` | `api-token` (recommended) \| `token` (verified) \| `vcfa-cloudapi` \| `vcfa` \| `basic` \| `auto` |
-| `VRO_API_TOKEN` | | Optional seed refresh token for `api-token` mode (setup stores one for you) |
-| `VRO_TOKEN_FILE` | `~/.vcf-orchestrator-mcp/tokens.json` | Where rotated refresh tokens are kept |
-| `VRO_CLIENT_ID` | | Service account client_id (setup stores it) |
-| `VRO_TOKEN` | | Short-lived bearer token for `token` mode |
-| `VRO_INSECURE` | `false` | `true` for self-signed lab certs |
-| `VRO_API_BASE` | `/vco/api` | |
-| `VRO_USERNAME` / `VRO_PASSWORD` | | For the login modes below |
-| `VRO_ORG` | | VCFA org for `api-token` / `vcfa-cloudapi` (`System` = provider) |
-| `VRO_DOMAIN` | | Identity domain for `vcfa` login |
-| `VRO_AUTH_URL` | `VRO_URL` | Login host, when Orchestrator authenticates against a **different** VCF Automation host |
-| `VRO_SPEC_PATH` | bundled spec | Drop in a newer OpenAPI spec without rebuilding |
-| `VRO_MAX_CHARS` | `25000` | Response truncation limit per tool call |
-| `VRO_TIMEOUT_MS` | `60000` | |
-| `VRO_SCRATCH_MODULE` | `com.mcp.scratch` | Module for `vro_run_script` temp actions |
+## Also in this repo
 
-### Username/password login modes (not yet verified)
+- [`skill/vcf-orchestrator-mcp`](skill/vcf-orchestrator-mcp): a free agent skill that teaches agents how to use these tools well.
+- [`examples/onboard-vms-by-name.workflow.json`](examples/onboard-vms-by-name.workflow.json): a full `vro_save_workflow` spec, run end to end on VCF Automation 9.1.1.
+- [`wiki/`](wiki): the source of the wiki pages.
 
-These modes log in with a username and password and get a token automatically. They are **not yet verified** against VCFA 9.x.
-
-- **`vcfa-cloudapi`**: username and password, re-logging in automatically. It sends `POST /cloudapi/1.0.0/sessions`, falling back to `/tm/cloudapi/1.0.0/sessions` (provider: `/sessions/provider`), as `user@org`, then uses the `x-vmware-vcloud-access-token` response header as the bearer token. Set `VRO_ORG`, `VRO_USERNAME` and `VRO_PASSWORD`. This keeps the password in the config, so prefer `setup` with `api-token`.
-- **`vcfa`**: CSP login (`/csp/gateway/am/api/login`). This is the Aria Automation 8 style; VCFA 9 doesn't offer it.
-- **`basic`**: HTTP Basic auth, for external Orchestrator configured with vSphere SSO.
-- **`auto`**: tries `api-token`, then `token`, then `vcfa-cloudapi`, then `vcfa`, then `basic`.
-
-**`api-token`** exchanges the API token at `/oauth/tenant/{org}/token`, falling back to `/tm/oauth/tenant/{org}/token` (for the provider: `/oauth/provider/token`). It renews the access token a minute before it expires, and again on a 401.
-
-When login fails, `vro_server_info` returns the error plus unauthenticated probes of every login endpoint. That shows which login flavours your host offers. In the password modes, the token is re-fetched automatically when a call returns 401.
-
-## Tips for prompting
-
-- "Run *Create VM Folder* with folderName=lab-01 and show me the logs"
-- "Write an action in com.mayank.lab that returns all vCenter VM names, run it and fix it until it works"
-- "Find the API for exporting a package and export com.vmware.library to a file"
-- "Show the last 5 failed runs of workflow X and why they failed"
-- "Create a workflow in folder Lab/Onboarding that ... with vraHost preset to the Default VRA host, then run it"
-
-`examples/onboard-vms-by-name.workflow.json` is a full `vro_save_workflow` spec. It's an onboarding workflow that brings unmanaged VMs into a VCF Automation project, and it has been run end to end on VCF Automation 9.1.1.
-
-## Testing
-
-`test-client.mjs` exercises every tool over stdio. Point it at a mock or a lab Orchestrator through the env vars in the file.
-
-## Releasing
-
-Pushing a `v*` tag publishes to npm through `.github/workflows/publish.yml`. It uses npm trusted publishing (OIDC), so no token is stored anywhere. To enable it once, open the package on npmjs.com → Settings → Trusted Publisher and add GitHub Actions with repo `imtrinity94/vcf-orchestrator-mcp` and workflow `publish.yml`. Then release with:
+## Development
 
 ```bash
-npm version patch && git push --follow-tags
+git clone https://github.com/imtrinity94/vcf-orchestrator-mcp.git
+cd vcf-orchestrator-mcp
+npm install        # also builds into dist/
 ```
+
+`test-client.mjs` exercises every tool over stdio against a mock or lab Orchestrator.
+
+**Releasing:** pushing a `v*` tag publishes to npm through `.github/workflows/publish.yml` (npm trusted publishing, no stored token). Or run `npm login` and `npm publish` locally.
 
 ## License
 
