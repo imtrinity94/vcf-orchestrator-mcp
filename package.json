@@ -1,6 +1,6 @@
 {
   "name": "vcf-orchestrator-mcp",
-  "version": "0.6.1",
+  "version": "0.6.2",
   "description": "MCP server for VCF Operations Orchestrator (vRO) 9.x — embedded in VCF Automation or standalone. Spec-driven: full REST API access plus workflow/action/script tools.",
   "main": "dist/cli.js",
   "scripts": {
@@ -46,7 +46,7 @@
     "type": "git",
     "url": "git+https://github.com/imtrinity94/vcf-orchestrator-mcp.git"
   },
-  "homepage": "https://github.com/imtrinity94/vcf-orchestrator-mcp#readme",
+  "homepage": "https://cloudblogger.co.in/2026/10/14/vcf-orchestrator-mcp-claude-for-vcf-operations-orchestrator/",
   "bugs": {
     "url": "https://github.com/imtrinity94/vcf-orchestrator-mcp/issues"
   },
