@@ -17,7 +17,7 @@ npm install -g vcf-orchestrator-mcp
 ## 2. One-time setup
 
 ```
-vcf-orchestrator-mcp setup --url https://<vcfa-fqdn> --org <org name> --user <local user> --name <service account name> --role "Organization Owner,Orchestrator Administrator" --insecure
+vcf-orchestrator-mcp setup --url "https://auto.example.lab" --org "<org-name>" --user "<local-admin>" --name "Lab-vRO-MCP" --role "Organization Owner,Orchestrator Administrator" --insecure
 ```
 
 - `--org` is the organization **name**, the last part of `https://<vcfa-fqdn>/tenant/<name>`, not its display name.

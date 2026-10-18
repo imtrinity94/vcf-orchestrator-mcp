@@ -23,7 +23,7 @@ The [blog post](https://cloudblogger.co.in/2026/10/14/vcf-orchestrator-mcp-claud
 2. **Run the one-time setup.** It creates a VCF Automation service account and stores its refresh token on your machine. The password is asked for with a masked prompt and never stored.
 
    ```bash
-   vcf-orchestrator-mcp setup --url https://auto.example.lab --org <org name> --user <local admin> --name <service account name> --role "Organization Owner,Orchestrator Administrator" --insecure
+   vcf-orchestrator-mcp setup --url "https://auto.example.lab" --org "<org-name>" --user "<local-admin>" --name "Lab-vRO-MCP" --role "Organization Owner,Orchestrator Administrator" --insecure
    ```
 
    `--org` is the org **name** from `https://<host>/tenant/<name>`. The service account needs the **Orchestrator Administrator** role. Details and options: [Setup and Service Account](https://github.com/imtrinity94/vcf-orchestrator-mcp/blob/main/docs/Setup-and-Service-Account.md).

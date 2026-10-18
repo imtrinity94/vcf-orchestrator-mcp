@@ -16,8 +16,10 @@ Collect these values from your VCF Automation:
 
 ## Run setup
 
+Replace the URL, `<org-name>` and `<local-admin>` with your values from the table above (keep the quotes):
+
 ```bash
-vcf-orchestrator-mcp setup --url https://auto.vmw.lab --org vmapps-org --user admin --name Lab-vRO-MCP --role "Organization Owner,Orchestrator Administrator" --insecure
+vcf-orchestrator-mcp setup --url "https://auto.example.lab" --org "<org-name>" --user "<local-admin>" --name "Lab-vRO-MCP" --role "Organization Owner,Orchestrator Administrator" --insecure
 ```
 
 Setup asks for the password with a masked prompt. The password is used once to log in and is never stored.
@@ -97,7 +99,7 @@ Users who sign in through SSO or an external identity provider can't log in with
 1. In the tenant portal, create the service account under **Access Control > Service Accounts > New**, with the roles above, and copy its **client ID**.
 2. Run:
    ```bash
-   vcf-orchestrator-mcp setup --url https://auto.vmw.lab --org vmapps-org --client-id <client ID> --insecure
+   vcf-orchestrator-mcp setup --url "https://auto.example.lab" --org "<org-name>" --client-id "<client-id>" --insecure
    ```
 3. Setup prints a user code and waits up to 10 minutes. Grant the code under **Review Access Requests**, and setup finishes by itself.
 
