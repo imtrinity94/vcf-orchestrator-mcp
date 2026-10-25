@@ -21,6 +21,7 @@ The server is configured with environment variables, set in the `env` block of y
 | `VRO_API_BASE` | `/vco/api` | Orchestrator API base path. |
 | `VRO_SPEC_PATH` | bundled spec | Use a newer Orchestrator OpenAPI spec without rebuilding. |
 | `VRO_MAX_CHARS` | `25000` | Maximum characters per tool response before truncation. |
+| `VRO_DOWNLOAD_DIR` | `~/Downloads/vro` (or the temp folder if there is no Downloads folder) | Where `vro_export_package` and binary `vro_api_call` responses are saved when no folder is given. |
 | `VRO_TIMEOUT_MS` | `60000` | HTTP timeout per request. |
 | `VRO_SCRATCH_MODULE` | `com.mcp.scratch` | Module for the temporary actions created by `vro_run_script`. |
 

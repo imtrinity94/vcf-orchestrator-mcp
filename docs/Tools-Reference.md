@@ -36,6 +36,12 @@ All tools come from the vcf-orchestrator-mcp server. Workflows and actions can u
 |---|---|---|
 | `vro_set_versions` | Sets or bumps versions of actions (a whole module or a list) and workflows without touching their content. | `module`, `actions`, `workflows`, `version` or `bump`, `onlyIfBelow` (e.g. baseline everything below 1.0.0 to 1.0.0) |
 
+## Packages
+
+| Tool | What it does | Main parameters |
+|---|---|---|
+| `vro_export_package` | Downloads a package as a `.package` file on this computer and returns the saved path, size and the package's workflows, actions, configuration and resource elements. The file is byte-for-byte what Orchestrator exported, so it imports elsewhere and opens in [vRO Peekage](https://vro-peekage.vercel.app). An existing file is never overwritten unless asked; a `-2`, `-3` suffix is added. | `packageName`, `outDir` (default `VRO_DOWNLOAD_DIR`, else `~/Downloads/vro`), `fileName` (default `<package>_<yyyymmdd>.package`), `includeConfigValues` (default true), `includeSecureStrings` (default false), `includeVersionHistory`, `includeGlobalTags`, `overwrite` |
+
 ## Full REST API
 
 The server includes the Orchestrator OpenAPI spec (300+ operations).
@@ -44,13 +50,14 @@ The server includes the Orchestrator OpenAPI spec (300+ operations).
 |---|---|---|
 | `vro_api_search` | Finds operations by keyword, path fragment or operationId. `listTags: true` lists the API areas. | `query`, `tag`, `method`, `limit` |
 | `vro_api_describe` | Shows one operation's path, query and header parameters, request body and response shape. Use before any call with a body. | `operationId` |
-| `vro_api_call` | Calls any endpoint. Paths are relative to `/vco/api`. Inventory lists are flattened into `items` unless `raw: true`. | `operationId` or `method` + `path`, `pathParams`, `query`, `body`, `accept`, `raw`, `includeHeaders`, `maxChars` |
+| `vro_api_call` | Calls any endpoint. Paths are relative to `/vco/api`. Inventory lists are flattened into `items` unless `raw: true`. Binary responses (zip, octet-stream, images) are saved to a file instead of returned as text, and the result gives `savedTo` and `bytes`. | `operationId` or `method` + `path`, `pathParams`, `query`, `body`, `accept`, `raw`, `includeHeaders`, `maxChars`, `saveTo` (folder or file path for binary responses) |
 
-Example: export a package.
+Example: download an exported workflow (`exportWorkflow`) or action (`exportAction`).
 
-1. `vro_api_search` with query `package export`.
-2. `vro_api_describe` on the operation it returns.
-3. `vro_api_call` with that operationId and the package name.
+1. `vro_api_search` with query `export workflow`.
+2. `vro_api_call` with that operationId, the id, and `accept: "application/zip"`. The file is saved and its path returned.
+
+For packages, use `vro_export_package` instead.
 
 ## Notes
 

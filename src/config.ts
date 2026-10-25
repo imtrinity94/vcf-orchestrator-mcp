@@ -1,5 +1,6 @@
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import os from "node:os";
 
 export type AuthMode = "auto" | "basic" | "vcfa" | "vcfa-cloudapi" | "token" | "api-token";
 
@@ -26,6 +27,8 @@ export interface Config {
   insecure: boolean;
   specPath: string;
   maxChars: number;
+  /** Default folder for downloads (packages, binary API responses) */
+  downloadDir?: string;
   timeoutMs: number;
   scratchModule: string;
 }
@@ -80,6 +83,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     insecure: bool(env.VRO_INSECURE, false),
     specPath: env.VRO_SPEC_PATH ? path.resolve(env.VRO_SPEC_PATH) : defaultSpec,
     maxChars: Number(env.VRO_MAX_CHARS ?? 25000),
+    downloadDir: env.VRO_DOWNLOAD_DIR ? path.resolve(env.VRO_DOWNLOAD_DIR.replace(/^~(?=$|[\\/])/, os.homedir())) : undefined,
     timeoutMs: Number(env.VRO_TIMEOUT_MS ?? 60000),
     scratchModule: env.VRO_SCRATCH_MODULE ?? "com.mcp.scratch",
   };

@@ -2,6 +2,9 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
+import { mkdirSync, writeFileSync, existsSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
+import nodePath from "node:path";
 import { loadConfig } from "./config.js";
 import { OrchestratorClient } from "./client.js";
 import { SpecIndex } from "./spec.js";
@@ -64,6 +67,42 @@ function flattenInventory(body: any): any {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const enc = encodeURIComponent;
+
+// ---- binary downloads (packages, exported workflows/actions, resource files)
+
+/** Where downloads go when no folder is given: VRO_DOWNLOAD_DIR, else ~/Downloads/vro, else the temp folder. */
+function defaultDownloadDir(): string {
+  if (cfg.downloadDir) return cfg.downloadDir;
+  const dl = nodePath.join(homedir(), "Downloads");
+  return existsSync(dl) ? nodePath.join(dl, "vro") : nodePath.join(tmpdir(), "vro-downloads");
+}
+
+function expandHome(p: string): string {
+  return p === "~" || p.startsWith("~/") || p.startsWith("~\\") ? nodePath.join(homedir(), p.slice(1)) : p;
+}
+
+/** File name from Content-Disposition, if the server sent one */
+function dispositionName(headers: Record<string, string>): string | undefined {
+  const cd = headers["content-disposition"] ?? "";
+  const star = /filename\*\s*=\s*(?:UTF-8'')?([^;]+)/i.exec(cd);
+  if (star) return decodeURIComponent(star[1].trim().replace(/^"|"$/g, ""));
+  const m = /filename\s*=\s*"?([^";]+)"?/i.exec(cd);
+  return m?.[1]?.trim();
+}
+
+const safeName = (n: string) => n.replace(/[<>:"/\\|?*\x00-\x1f]+/g, "_").replace(/^\.+/, "_");
+
+/** Write a downloaded body to disk and describe it. */
+function saveDownload(buf: Buffer, opts: { dir?: string; fileName?: string; fallbackName: string; headers: Record<string, string> }) {
+  const dir = nodePath.resolve(expandHome(opts.dir || defaultDownloadDir()));
+  mkdirSync(dir, { recursive: true });
+  const name = safeName(opts.fileName || dispositionName(opts.headers) || opts.fallbackName);
+  const file = nodePath.join(dir, name);
+  writeFileSync(file, buf);
+  return { savedTo: file, bytes: buf.length, contentType: opts.headers["content-type"] ?? "" };
+}
+
+const ymd = () => new Date().toISOString().slice(0, 10).replace(/-/g, "");
 
 function paramDefs(list: any[] | undefined): ParamDef[] {
   return (list ?? []).map((p: any) => ({ name: p.name, type: p.type, description: p.description }));
@@ -279,7 +318,7 @@ async function saveAction(a: {
 
 // ---------------------------------------------------------------- server
 
-const server = new McpServer({ name: "vcf-orchestrator", version: "0.6.2" });
+const server = new McpServer({ name: "vcf-orchestrator", version: "0.7.0" });
 
 const jsonObj = z.record(z.string(), z.any());
 
@@ -383,6 +422,10 @@ server.registerTool(
       raw: z.boolean().optional().describe("Return the body exactly as received"),
       includeHeaders: z.boolean().optional(),
       maxChars: z.number().int().optional(),
+      saveTo: z
+        .string()
+        .optional()
+        .describe("Folder or full file path for a binary response (zip/.package, octet-stream, images). Binary responses are always saved to a file, by default in ~/Downloads/vro (or VRO_DOWNLOAD_DIR)."),
     },
   },
   tool(async (a: any) => {
@@ -411,6 +454,21 @@ server.registerTool(
       accept: a.accept,
       contentType: a.contentType,
     });
+    if (Buffer.isBuffer(r.body)) {
+      // Never return binary as text: it gets corrupted. Save it and return where it went.
+      const target = a.saveTo ? expandHome(a.saveTo) : undefined;
+      const isFile = !!target && /\.[A-Za-z0-9]{1,8}$/.test(target);
+      const last = resolved.split("/").filter(Boolean).pop() ?? "download";
+      const saved = saveDownload(r.body, {
+        dir: isFile ? nodePath.dirname(target!) : target,
+        fileName: isFile ? nodePath.basename(target!) : undefined,
+        fallbackName: `${decodeURIComponent(last)}.bin`,
+        headers: r.headers,
+      });
+      const res = out({ status: r.status, ...(a.includeHeaders ? { headers: r.headers } : {}), binary: true, ...saved });
+      if (!r.ok) res.isError = true;
+      return res;
+    }
     const body = a.raw ? r.body : flattenInventory(r.body);
     const result: any = { status: r.status, ...(a.includeHeaders || !r.body ? { headers: r.headers } : {}), body };
     if (!r.ok) {
@@ -420,6 +478,84 @@ server.registerTool(
     const res = out(result, a.maxChars ?? cfg.maxChars);
     if (!r.ok) res.isError = true;
     return res;
+  })
+);
+
+// ---- packages
+
+server.registerTool(
+  "vro_export_package",
+  {
+    description:
+      "Download an Orchestrator package as a real .package file on this computer (for backup, moving between environments, or opening in vRO Peekage). Returns the saved path, size and the package's elements. SecureString values are left out unless includeSecureStrings is true.",
+    inputSchema: {
+      packageName: z.string().describe("Exact package name, e.g. com.mbcom.loggerModule (list them with vro_api_call operationId listAllPackages)"),
+      outDir: z.string().optional().describe("Folder to save into. Default: VRO_DOWNLOAD_DIR, else ~/Downloads/vro"),
+      fileName: z.string().optional().describe("Default: <package>_<yyyymmdd>.package"),
+      includeConfigValues: z.boolean().optional().describe("Export configuration element values (default true)"),
+      includeSecureStrings: z.boolean().optional().describe("Export SecureString values too (default false)"),
+      includeVersionHistory: z.boolean().optional().describe("default true"),
+      includeGlobalTags: z.boolean().optional().describe("default true"),
+      overwrite: z.boolean().optional().describe("Replace an existing file with the same name (default false: a -2, -3 suffix is added)"),
+    },
+  },
+  tool(async (a: any) => {
+    const name = String(a.packageName).trim();
+    const p = `/packages/${enc(name)}`;
+    const r = await vro.request("GET", p, {
+      accept: "application/zip",
+      query: {
+        exportConfigurationAttributeValues: a.includeConfigValues ?? true,
+        exportConfigSecureStringAttributeValues: a.includeSecureStrings ?? false,
+        exportVersionHistory: a.includeVersionHistory ?? true,
+        exportGlobalTags: a.includeGlobalTags ?? true,
+      },
+    });
+    if (!r.ok) {
+      const detail = Buffer.isBuffer(r.body) ? "" : typeof r.body === "string" ? r.body.slice(0, 600) : JSON.stringify(r.body)?.slice(0, 600);
+      throw new Error(
+        r.status === 404
+          ? `Package "${name}" not found. Names are case-sensitive; list them with vro_api_call operationId listAllPackages.`
+          : `Export of "${name}" failed: HTTP ${r.status} ${detail ?? ""}`
+      );
+    }
+    const buf = Buffer.isBuffer(r.body) ? r.body : Buffer.from(typeof r.body === "string" ? r.body : JSON.stringify(r.body), "utf8");
+    if (!(buf[0] === 0x50 && buf[1] === 0x4b)) {
+      throw new Error(`Orchestrator did not return a zip for "${name}" (content-type ${r.headers["content-type"] ?? "none"}, ${buf.length} bytes).`);
+    }
+    const dir = nodePath.resolve(expandHome(a.outDir || defaultDownloadDir()));
+    let fileName = safeName(a.fileName || `${name}_${ymd()}.package`);
+    if (!/\.package$/i.test(fileName)) fileName += ".package";
+    if (!a.overwrite) {
+      const base = fileName.replace(/\.package$/i, "");
+      for (let i = 2; existsSync(nodePath.join(dir, fileName)); i++) fileName = `${base}-${i}.package`;
+    }
+    const saved = saveDownload(buf, { dir, fileName, fallbackName: fileName, headers: r.headers });
+
+    // Element list from the JSON view of the same package (best effort)
+    let contents: unknown;
+    try {
+      const j = await vro.request("GET", p, { accept: "json" });
+      const b: any = j.body;
+      if (j.ok && b && typeof b === "object" && !Buffer.isBuffer(b)) {
+        const pick = (k: string) => (Array.isArray(b[k]) ? b[k].map((x: any) => x?.name ?? x?.id ?? x).filter(Boolean) : undefined);
+        contents = {
+          workflows: pick("workflows"),
+          actions: pick("actions"),
+          configurations: pick("configurations"),
+          resources: pick("resources"),
+        };
+      }
+    } catch {
+      /* the file is saved; the listing is only a convenience */
+    }
+    return {
+      package: name,
+      ...saved,
+      secureStringsIncluded: !!a.includeSecureStrings,
+      contents,
+      next: "Open the file in vRO Peekage (https://vro-peekage.vercel.app) to browse it, or export it there as plain-text files an AI can read.",
+    };
   })
 );
 

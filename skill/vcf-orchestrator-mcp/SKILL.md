@@ -24,6 +24,7 @@ This skill tells you how to work with VCF Operations Orchestrator 9.x (embedded 
 | Create or change a workflow | `vro_save_workflow` (compact JSON spec, see `references/workflow-spec.md`) |
 | Try a snippet or inspect inventory | `vro_run_script` (temporary action, deleted afterwards) |
 | Baseline or bump versions | `vro_set_versions` |
+| Download a package as a `.package` file | `vro_export_package` (saves to disk and returns the path; never use `vro_api_call` text output for package bytes) |
 | Anything else in the REST API (packages, configuration and resource elements, folders, permissions, tasks, policies ...) | `vro_api_search` to find the operation, `vro_api_describe` to see its body, `vro_api_call` to call it |
 
 Full parameter notes are in `references/tools.md`.

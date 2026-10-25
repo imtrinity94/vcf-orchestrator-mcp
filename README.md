@@ -64,6 +64,7 @@ The server renews its token by itself, so you never paste tokens: [Token Refresh
 | `vro_run_script` | Run a quick ES5 snippet via a temporary action |
 | `vro_set_versions` | Set or bump versions of actions and workflows |
 | `vro_delete_workflow` | Delete a workflow |
+| `vro_export_package` | Download a package as a real `.package` file, ready for backup, import elsewhere or [vRO Peekage](https://vro-peekage.vercel.app) |
 | `vro_api_search`, `vro_api_describe`, `vro_api_call` | Reach the full Orchestrator REST API (303 operations) |
 
 Parameters for each: [Tools Reference](https://github.com/imtrinity94/vcf-orchestrator-mcp/blob/main/docs/Tools-Reference.md).

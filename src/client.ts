@@ -15,7 +15,22 @@ export interface ApiResponse {
   status: number;
   ok: boolean;
   headers: Record<string, string>;
+  /** Parsed JSON, a string, or a Buffer for binary responses (zip, octet-stream, images, ...) */
   body: unknown;
+}
+
+const TEXTUAL = /json|xml|text\/|javascript|x-www-form-urlencoded|yaml|csv|html/i;
+const BINARY = /zip|octet-stream|application\/x-|pdf|image\/|audio\/|video\/|font\//i;
+
+/** True when a response is binary and must not be decoded as text. */
+export function looksBinary(contentType: string, bytes: Uint8Array): boolean {
+  if (TEXTUAL.test(contentType)) return false;
+  if (BINARY.test(contentType)) return true;
+  // No (or an unknown) content type: sniff. Zip magic, or NUL bytes near the start.
+  if (bytes.length >= 4 && bytes[0] === 0x50 && bytes[1] === 0x4b && bytes[2] === 0x03 && bytes[3] === 0x04) return true;
+  const n = Math.min(bytes.length, 1024);
+  for (let i = 0; i < n; i++) if (bytes[i] === 0) return true;
+  return false;
 }
 
 export class ApiError extends Error {
@@ -84,9 +99,11 @@ export class OrchestratorClient {
   }
 
   private static async readBody(res: Awaited<ReturnType<typeof fetch>>): Promise<unknown> {
-    const text = await res.text();
-    if (!text) return null;
+    const bytes = new Uint8Array(await res.arrayBuffer());
+    if (!bytes.length) return null;
     const ct = res.headers.get("content-type") ?? "";
+    if (looksBinary(ct, bytes)) return Buffer.from(bytes);
+    const text = Buffer.from(bytes).toString("utf8");
     if (ct.includes("json") || /^[\s]*[{[]/.test(text)) {
       try {
         return JSON.parse(text);
