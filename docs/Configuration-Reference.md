@@ -23,6 +23,9 @@ The server is configured with environment variables, set in the `env` block of y
 | `VRO_MAX_CHARS` | `25000` | Maximum characters per tool response before truncation. |
 | `VRO_DOWNLOAD_DIR` | `~/Downloads/vro` (or the temp folder if there is no Downloads folder) | Where `vro_export_package` and binary `vro_api_call` responses are saved when no folder is given. |
 | `VRO_TIMEOUT_MS` | `60000` | HTTP timeout per request. |
+| `VRO_APIREF` | `on` | `off` turns the modernvroapi.in check and `vro_sdk_lookup` off. |
+| `VRO_APIREF_URL` | `https://modernvroapi.in/api/v1` | JSON API used for the check. Responses are cached for 3 days in `~/.vcf-orchestrator-mcp/apiref-cache`. |
+| `VRO_CHANGES_FILE` | `~/.vcf-orchestrator-mcp/changes.json` | Where the list of pushed workflows and actions is kept for `vro_build_package`. |
 | `VRO_SCRATCH_MODULE` | `com.mcp.scratch` | Module for the temporary actions created by `vro_run_script`. |
 
 ## Auth modes

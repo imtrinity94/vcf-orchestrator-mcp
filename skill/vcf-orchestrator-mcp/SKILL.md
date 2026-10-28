@@ -25,6 +25,9 @@ This skill tells you how to work with VCF Operations Orchestrator 9.x (embedded 
 | Try a snippet or inspect inventory | `vro_run_script` (temporary action, deleted afterwards) |
 | Baseline or bump versions | `vro_set_versions` |
 | Download a package as a `.package` file | `vro_export_package` (saves to disk and returns the path; never use `vro_api_call` text output for package bytes) |
+| Check a class, method or signature before using it | `vro_sdk_lookup` (modernvroapi.in) |
+| Check a script without saving it | `vro_check_script` |
+| Hand over what was built as a package | `vro_build_package` (packages every tracked workflow and action and exports the `.package` file); `vro_tracked_changes` shows what it will include |
 | Anything else in the REST API (packages, configuration and resource elements, folders, permissions, tasks, policies ...) | `vro_api_search` to find the operation, `vro_api_describe` to see its body, `vro_api_call` to call it |
 
 Full parameter notes are in `references/tools.md`.
@@ -32,6 +35,7 @@ Full parameter notes are in `references/tools.md`.
 ## 3. Rules for code you write
 
 - **Orchestrator runs Rhino, so every script must be plain ES5.** Use `var` and `function () {}`. Never use arrow functions, `let`/`const`, template literals, classes, destructuring, default parameters, `for...of`, spread, `Promise` or `async`. Check this before every `vro_save_action`, `vro_save_workflow` and `vro_run_script` call.
+- **Use real APIs.** When you are not sure a class, method or argument list exists, call `vro_sdk_lookup` first. Every save returns `apiCheck`: if it lists findings (unknown method, wrong argument count, not ES5), fix them and save again before moving on. Report any finding you leave on purpose.
 - Use `System.log`, `System.warn` and `System.error` for logging, and `throw` errors with a clear message.
 - Never hard-code passwords, tokens or keys in scripts. Use workflow inputs of type `SecureString`, or configuration elements, and say which one you chose.
 - Versions are bumped automatically on every save (new item = 1.0.0, update = patch + 1). Use `bump: "minor"` or `"major"` for bigger changes. Do not set a version lower than the current one.
@@ -43,7 +47,8 @@ Full parameter notes are in `references/tools.md`.
 2. **Build in small steps and test each one.** Save an action, run it with `vro_run_action` using realistic inputs, read the result and logs, fix, save again. Then build the workflow on top of tested actions.
 3. **Prefer a dry run** for anything that changes infrastructure (onboarding, deletes, reconfiguration). If the workflow has a `dryRun` input, run with `dryRun: true` first, show the user what would happen, and wait for a clear yes before the real run.
 4. **When a run fails,** get the execution with logs, quote the error line, explain the cause in one or two sentences, fix it, and run again. Do not retry the same failing call unchanged.
-5. **Deleting is destructive.** Before `vro_delete_workflow` or a `DELETE` with `vro_api_call`, name exactly what will be deleted and wait for the user to confirm.
+5. **Finish with a package.** When the work is done, offer to run `vro_build_package` with a package name that follows the user's convention (for example `com.<cust>.<scope>`), and give the user the path of the exported `.package` file so they can open it in vRO Peekage.
+6. **Deleting is destructive.** Before `vro_delete_workflow` or a `DELETE` with `vro_api_call`, name exactly what will be deleted and wait for the user to confirm.
 
 ## 5. Inputs and types
 

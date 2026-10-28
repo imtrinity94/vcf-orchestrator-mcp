@@ -41,6 +41,17 @@ All tools come from the vcf-orchestrator-mcp server. Workflows and actions can u
 | Tool | What it does | Main parameters |
 |---|---|---|
 | `vro_export_package` | Downloads a package as a `.package` file on this computer and returns the saved path, size and the package's workflows, actions, configuration and resource elements. The file is byte-for-byte what Orchestrator exported, so it imports elsewhere and opens in [vRO Peekage](https://vro-peekage.vercel.app). An existing file is never overwritten unless asked; a `-2`, `-3` suffix is added. | `packageName`, `outDir` (default `VRO_DOWNLOAD_DIR`, else `~/Downloads/vro`), `fileName` (default `<package>_<yyyymmdd>.package`), `includeConfigValues` (default true), `includeSecureStrings` (default false), `includeVersionHistory`, `includeGlobalTags`, `overwrite` |
+| `vro_tracked_changes` | Lists the workflows and actions saved through the MCP since the last package build (kept per Orchestrator host in `~/.vcf-orchestrator-mcp/changes.json`). Can clear the list or forget single ids. | `clear`, `remove` |
+| `vro_build_package` | Creates the package if needed, adds every tracked workflow and action (plus anything you list), and exports it as `<package>_v<version>_<yyyymmdd>.package`. Returns the file path, what was added and what failed. Clears the tracked list afterwards unless told not to. Names should follow `com.<cust>.<scope>`; anything else gets a warning. | `packageName`, `version` (default 1.0.0), `description`, `useTracked`, `workflows`, `actions`, `configurations`, `resources`, `outDir`, `includeSecureStrings`, `clearTracked`, `dryRun` |
+
+## Scripting API reference (modernvroapi.in)
+
+| Tool | What it does | Main parameters |
+|---|---|---|
+| `vro_sdk_lookup` | Looks up a class (`VcPlugin`), a method (`VcPlugin.getAllVirtualMachines`), an Orchestrator type (`VC:VirtualMachine` maps to `VcVirtualMachine`) or a search term on [modernvroapi.in](https://modernvroapi.in). Returns signatures, attributes, constructors and the doc link. | `query`, `plugin`, `maxMethods` |
+| `vro_check_script` | Checks a script without saving it: plain ES5 syntax, and every call on a known class or typed variable (class exists, method exists, argument count). | `script`, `variables` (name to type) |
+
+`vro_save_action`, `vro_save_workflow` and `vro_run_script` run the same check automatically and return the result as `apiCheck`. The check never blocks a save: issues are listed with line numbers and "did you mean" suggestions, so the assistant can fix them and save again. If modernvroapi.in can't be reached, the check is skipped (cached data is used when available) and the save works as before.
 
 ## Full REST API
 

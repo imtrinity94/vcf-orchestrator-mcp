@@ -36,6 +36,17 @@ All tools come from the vcf-orchestrator-mcp server. Workflows and actions can u
 |---|---|---|
 | `vro_set_versions` | Sets or bumps versions of actions (a whole module or a list) and workflows without touching their content. | `module`, `actions`, `workflows`, `version` or `bump`, `onlyIfBelow` (e.g. baseline everything below 1.0.0 to 1.0.0) |
 
+## Scripting API reference and packages
+
+| Tool | What it does | Main parameters |
+|---|---|---|
+| `vro_sdk_lookup` | Looks up a class, `Class.method`, an Orchestrator type (`VC:VirtualMachine`) or a search term on modernvroapi.in and returns real signatures. | `query`, `plugin`, `maxMethods` |
+| `vro_check_script` | Checks a script for ES5 and correct class/method use without saving it. | `script`, `variables` (name to type) |
+| `vro_tracked_changes` | Lists (or clears) the workflows and actions saved through the MCP since the last package build. | `clear`, `remove` |
+| `vro_build_package` | Puts the tracked items (plus extras) into a package and exports `<package>_v<version>_<yyyymmdd>.package`. | `packageName`, `version`, `workflows`, `actions`, `configurations`, `resources`, `dryRun` |
+
+`vro_save_action`, `vro_save_workflow` and `vro_run_script` return `apiCheck` with any findings.
+
 ## Full REST API
 
 The server includes the Orchestrator OpenAPI spec (300+ operations).

@@ -10,10 +10,14 @@ import { OrchestratorClient } from "./client.js";
 import { SpecIndex } from "./spec.js";
 import { buildParameters, fromWire, paramsToObject, type ParamDef } from "./values.js";
 import { buildWorkflowXml, validateSpec, type WfSpec } from "./workflow.js";
+import { ApiReference, checkScript, mergeChecks, typeToClassCandidates } from "./apiref.js";
+import { ChangeTracker, type ChangeKind } from "./changes.js";
 
 const cfg = loadConfig();
 const spec = new SpecIndex(cfg.specPath);
 const vro = new OrchestratorClient(cfg);
+const apiRef = new ApiReference({ baseUrl: cfg.apiRefUrl, enabled: cfg.apiRefEnabled });
+const changes = new ChangeTracker(cfg.url.toLowerCase(), cfg.changesFile);
 
 // ---------------------------------------------------------------- helpers
 
@@ -316,9 +320,95 @@ async function saveAction(a: {
   };
 }
 
+/** Export a package to a .package file (shared by vro_export_package and vro_build_package) */
+async function exportPackageFile(a: {
+  packageName: string;
+  outDir?: string;
+  fileName?: string;
+  includeConfigValues?: boolean;
+  includeSecureStrings?: boolean;
+  includeVersionHistory?: boolean;
+  includeGlobalTags?: boolean;
+  overwrite?: boolean;
+}) {
+    const name = String(a.packageName).trim();
+    const p = `/packages/${enc(name)}`;
+    const r = await vro.request("GET", p, {
+      accept: "application/zip",
+      query: {
+        exportConfigurationAttributeValues: a.includeConfigValues ?? true,
+        exportConfigSecureStringAttributeValues: a.includeSecureStrings ?? false,
+        exportVersionHistory: a.includeVersionHistory ?? true,
+        exportGlobalTags: a.includeGlobalTags ?? true,
+      },
+    });
+    if (!r.ok) {
+      const detail = Buffer.isBuffer(r.body) ? "" : typeof r.body === "string" ? r.body.slice(0, 600) : JSON.stringify(r.body)?.slice(0, 600);
+      throw new Error(
+        r.status === 404
+          ? `Package "${name}" not found. Names are case-sensitive; list them with vro_api_call operationId listAllPackages.`
+          : `Export of "${name}" failed: HTTP ${r.status} ${detail ?? ""}`
+      );
+    }
+    const buf = Buffer.isBuffer(r.body) ? r.body : Buffer.from(typeof r.body === "string" ? r.body : JSON.stringify(r.body), "utf8");
+    if (!(buf[0] === 0x50 && buf[1] === 0x4b)) {
+      throw new Error(`Orchestrator did not return a zip for "${name}" (content-type ${r.headers["content-type"] ?? "none"}, ${buf.length} bytes).`);
+    }
+    const dir = nodePath.resolve(expandHome(a.outDir || defaultDownloadDir()));
+    let fileName = safeName(a.fileName || `${name}_${ymd()}.package`);
+    if (!/\.package$/i.test(fileName)) fileName += ".package";
+    if (!a.overwrite) {
+      const base = fileName.replace(/\.package$/i, "");
+      for (let i = 2; existsSync(nodePath.join(dir, fileName)); i++) fileName = `${base}-${i}.package`;
+    }
+    const saved = saveDownload(buf, { dir, fileName, fallbackName: fileName, headers: r.headers });
+
+    // Element list from the JSON view of the same package (best effort)
+    let contents: unknown;
+    try {
+      const j = await vro.request("GET", p, { accept: "json" });
+      const b: any = j.body;
+      if (j.ok && b && typeof b === "object" && !Buffer.isBuffer(b)) {
+        const pick = (k: string) => (Array.isArray(b[k]) ? b[k].map((x: any) => x?.name ?? x?.id ?? x).filter(Boolean) : undefined);
+        contents = {
+          workflows: pick("workflows"),
+          actions: pick("actions"),
+          configurations: pick("configurations"),
+          resources: pick("resources"),
+        };
+      }
+    } catch {
+      /* the file is saved; the listing is only a convenience */
+    }
+    return {
+      package: name,
+      ...saved,
+      secureStringsIncluded: !!a.includeSecureStrings,
+      contents,
+      next: "Open the file in vRO Peekage (https://vro-peekage.vercel.app) to browse it, or export it there as plain-text files an AI can read.",
+    };
+}
+
+// ---- modernvroapi.in script check
+
+/** Variable name -> Orchestrator type, for checking calls on typed inputs and attributes */
+function typedVarMap(...lists: ({ name: string; type: string }[] | undefined)[]): Record<string, string> {
+  const m: Record<string, string> = {};
+  for (const l of lists) for (const p of l ?? []) if (p?.name && p?.type) m[p.name] = p.type;
+  return m;
+}
+
+async function safeCheck(script: string, typed: Record<string, string>, label?: string) {
+  try {
+    return await checkScript(apiRef, script ?? "", typed, label);
+  } catch (e: any) {
+    return { checked: false, es5: true, findings: [], skipped: `check failed: ${e?.message ?? e}` };
+  }
+}
+
 // ---------------------------------------------------------------- server
 
-const server = new McpServer({ name: "vcf-orchestrator", version: "0.7.0" });
+const server = new McpServer({ name: "vcf-orchestrator", version: "0.8.0" });
 
 const jsonObj = z.record(z.string(), z.any());
 
@@ -499,64 +589,7 @@ server.registerTool(
       overwrite: z.boolean().optional().describe("Replace an existing file with the same name (default false: a -2, -3 suffix is added)"),
     },
   },
-  tool(async (a: any) => {
-    const name = String(a.packageName).trim();
-    const p = `/packages/${enc(name)}`;
-    const r = await vro.request("GET", p, {
-      accept: "application/zip",
-      query: {
-        exportConfigurationAttributeValues: a.includeConfigValues ?? true,
-        exportConfigSecureStringAttributeValues: a.includeSecureStrings ?? false,
-        exportVersionHistory: a.includeVersionHistory ?? true,
-        exportGlobalTags: a.includeGlobalTags ?? true,
-      },
-    });
-    if (!r.ok) {
-      const detail = Buffer.isBuffer(r.body) ? "" : typeof r.body === "string" ? r.body.slice(0, 600) : JSON.stringify(r.body)?.slice(0, 600);
-      throw new Error(
-        r.status === 404
-          ? `Package "${name}" not found. Names are case-sensitive; list them with vro_api_call operationId listAllPackages.`
-          : `Export of "${name}" failed: HTTP ${r.status} ${detail ?? ""}`
-      );
-    }
-    const buf = Buffer.isBuffer(r.body) ? r.body : Buffer.from(typeof r.body === "string" ? r.body : JSON.stringify(r.body), "utf8");
-    if (!(buf[0] === 0x50 && buf[1] === 0x4b)) {
-      throw new Error(`Orchestrator did not return a zip for "${name}" (content-type ${r.headers["content-type"] ?? "none"}, ${buf.length} bytes).`);
-    }
-    const dir = nodePath.resolve(expandHome(a.outDir || defaultDownloadDir()));
-    let fileName = safeName(a.fileName || `${name}_${ymd()}.package`);
-    if (!/\.package$/i.test(fileName)) fileName += ".package";
-    if (!a.overwrite) {
-      const base = fileName.replace(/\.package$/i, "");
-      for (let i = 2; existsSync(nodePath.join(dir, fileName)); i++) fileName = `${base}-${i}.package`;
-    }
-    const saved = saveDownload(buf, { dir, fileName, fallbackName: fileName, headers: r.headers });
-
-    // Element list from the JSON view of the same package (best effort)
-    let contents: unknown;
-    try {
-      const j = await vro.request("GET", p, { accept: "json" });
-      const b: any = j.body;
-      if (j.ok && b && typeof b === "object" && !Buffer.isBuffer(b)) {
-        const pick = (k: string) => (Array.isArray(b[k]) ? b[k].map((x: any) => x?.name ?? x?.id ?? x).filter(Boolean) : undefined);
-        contents = {
-          workflows: pick("workflows"),
-          actions: pick("actions"),
-          configurations: pick("configurations"),
-          resources: pick("resources"),
-        };
-      }
-    } catch {
-      /* the file is saved; the listing is only a convenience */
-    }
-    return {
-      package: name,
-      ...saved,
-      secureStringsIncluded: !!a.includeSecureStrings,
-      contents,
-      next: "Open the file in vRO Peekage (https://vro-peekage.vercel.app) to browse it, or export it there as plain-text files an AI can read.",
-    };
-  })
+  tool(async (a: any) => exportPackageFile(a))
 );
 
 // ---- workflows
@@ -755,7 +788,7 @@ server.registerTool(
   "vro_save_action",
   {
     description:
-      "Create or update an action (upsert by module/name). Script must be plain ES5 JavaScript (no arrow functions, let/const, template literals, etc.) — Orchestrator runs Rhino. Omitted inputs/returnType keep the existing ones on update. Versions are always maintained: new actions start at 1.0.0, every update bumps the patch version unless version/bump is given.",
+      "Create or update an action (upsert by module/name). Script must be plain ES5 JavaScript (no arrow functions, let/const, template literals, etc.) — Orchestrator runs Rhino. Omitted inputs/returnType keep the existing ones on update. Versions are always maintained: new actions start at 1.0.0, every update bumps the patch version unless version/bump is given. After saving, the script is checked for ES5 and against modernvroapi.in (classes, methods, argument counts); issues come back in apiCheck — fix them and save again. The action is remembered for vro_build_package.",
     inputSchema: {
       module: z.string().describe("e.g. com.mayank.lab"),
       name: z.string(),
@@ -767,7 +800,14 @@ server.registerTool(
       bump: z.enum(["patch", "minor", "major"]).optional().describe("Auto-bump level when version is omitted (default patch)"),
     },
   },
-  tool(async (a: any) => saveAction(a))
+  tool(async (a: any) => {
+    const result = await saveAction(a);
+    const act: any = result.action;
+    if (act?.id) changes.record({ kind: "action", id: act.id, name: `${a.module}/${a.name}`, version: act.version });
+    const inputs = a.inputs ?? act?.inputs ?? [];
+    const apiCheck = mergeChecks([await safeCheck(a.script, typedVarMap(inputs), `${a.module}/${a.name}`)]);
+    return { ...result, apiCheck };
+  })
 );
 
 server.registerTool(
@@ -791,6 +831,7 @@ server.registerTool(
         a.inputTypes?.[name] ??
         (typeof v === "number" ? "number" : typeof v === "boolean" ? "boolean" : typeof v === "string" ? "string" : Array.isArray(v) ? "Array/Any" : "Properties"),
     }));
+    const apiCheck = mergeChecks([await safeCheck(a.script, typedVarMap(defs), "script")], false);
     const name = `mcp_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
     const saved = await saveAction({
       module: cfg.scratchModule,
@@ -803,7 +844,8 @@ server.registerTool(
     try {
       const action = await getAction(`${cfg.scratchModule}/${name}`);
       const result = await executeAction(action, inputs);
-      return a.keepAction ? { ...result, action: `${cfg.scratchModule}/${name}` } : result;
+      const withCheck = apiCheck.findings.length ? { ...result, apiCheck } : result;
+      return a.keepAction ? { ...withCheck, action: `${cfg.scratchModule}/${name}` } : withCheck;
     } finally {
       if (!a.keepAction && saved.action.id) {
         await vro.request("DELETE", `/actions/${enc(saved.action.id)}`, { query: { force: true } }).catch(() => undefined);
@@ -886,7 +928,7 @@ server.registerTool(
   "vro_save_workflow",
   {
     description:
-      "Create or update (upsert by name + folder) an Orchestrator workflow from a compact spec: inputs, outputs, attributes and ordered steps (script tasks, action calls, decisions, ends). Builds the schema, creates the folder path if missing, and validates. Scripts must be plain ES5. Steps flow in array order unless next/ifTrue/ifFalse say otherwise. Versions are always maintained: new = 1.0.0, each update bumps the patch version unless version/bump is given. Set dryRun to only return the generated XML.",
+      "Create or update (upsert by name + folder) an Orchestrator workflow from a compact spec: inputs, outputs, attributes and ordered steps (script tasks, action calls, decisions, ends). Builds the schema, creates the folder path if missing, and validates. Scripts must be plain ES5. Steps flow in array order unless next/ifTrue/ifFalse say otherwise. Versions are always maintained: new = 1.0.0, each update bumps the patch version unless version/bump is given. Set dryRun to only return the generated XML. Every script step is checked for ES5 and against modernvroapi.in; issues come back in apiCheck. The workflow is remembered for vro_build_package.",
     inputSchema: {
       folder: z.string().describe("Workflow folder path, e.g. 'mbcom/Onboarding' (created if missing)"),
       name: z.string(),
@@ -924,6 +966,15 @@ server.registerTool(
 
     const v = await vro.request("GET", `/workflows/${enc(id!)}/validate`);
     const def = await getWorkflowDef(id!);
+    changes.record({ kind: "workflow", id: id!, name: def.name, folder: a.folder, version: def.version });
+    const typed = typedVarMap(a.inputs as any, a.outputs as any, a.attributes as any);
+    const apiCheck = mergeChecks(
+      await Promise.all(
+        (a.steps ?? [])
+          .filter((st: any) => st.script && (st.type ?? (st.action ? "action" : "script")) !== "action")
+          .map((st: any) => safeCheck(st.script, typed, `step "${st.name ?? st.id}"`))
+      )
+    );
     return {
       created,
       ...(previousVersion ? { previousVersion } : {}),
@@ -934,6 +985,7 @@ server.registerTool(
       inputs: def.inputs,
       outputs: def.outputs,
       validation: v.ok ? v.body ?? "ok" : `HTTP ${v.status}: ${JSON.stringify(v.body)?.slice(0, 800)}`,
+      apiCheck,
     };
   })
 );
@@ -1006,7 +1058,194 @@ server.registerTool(
   tool(async (a: { workflow: string; force?: boolean }) => {
     const id = await resolveWorkflowId(a.workflow);
     await vro.call("DELETE", `/workflows/${enc(id)}`, { query: { force: a.force ?? false } });
+    changes.forget("workflow", id);
     return { deleted: id };
+  })
+);
+
+
+// ---- scripting API reference (modernvroapi.in)
+
+server.registerTool(
+  "vro_sdk_lookup",
+  {
+    description:
+      "Look up Orchestrator scripting classes and methods on modernvroapi.in (vRO SDK reference for core and plug-ins). Use BEFORE writing scripts that call classes you are unsure about: query a class ('VcPlugin'), a method ('VcPlugin.getAllVirtualMachines'), an Orchestrator type ('VC:VirtualMachine'), or a search term ('rest host'). Returns real signatures, attributes and doc links, so code uses correct methods and argument types.",
+    inputSchema: {
+      query: z.string().describe("Class, Class.method, Orchestrator type (VC:VirtualMachine) or search term"),
+      plugin: z.string().optional().describe("Plug-in id to prefer when a class exists in several (e.g. o11n-plugin-vc)"),
+      maxMethods: z.number().int().min(1).max(500).optional().describe("Cap on methods returned for a class (default 60)"),
+    },
+    annotations: { readOnlyHint: true },
+  },
+  tool(async (a: { query: string; plugin?: string; maxMethods?: number }) => {
+    const avail = await apiRef.available();
+    if (!avail.ok) throw new Error(avail.reason);
+    const q = a.query.trim();
+    const dot = q.indexOf(".");
+    const className = dot > 0 ? q.slice(0, dot) : q;
+    const method = dot > 0 ? q.slice(dot + 1).replace(/\(.*$/, "") : undefined;
+    const names = await apiRef.classNames();
+    const candidates = [...typeToClassCandidates(className), className].filter((c, i, arr) => arr.indexOf(c) === i);
+    const lowerNames = new Map(names.map((n) => [n.toLowerCase(), n]));
+    const hit = candidates.find((c) => names.includes(c)) ?? candidates.map((c) => lowerNames.get(c.toLowerCase())).find(Boolean);
+    if (!hit) {
+      return { found: false, query: q, matches: await apiRef.findClasses(q.replace(/\s+/g, ""), 15), source: apiRef.base };
+    }
+    const cls = await apiRef.getClass(hit, a.plugin);
+    if (!cls) return { found: false, query: q, source: apiRef.base };
+    const methods = cls.methods ?? [];
+    if (method) {
+      const ms = methods.filter((m) => m.name.toLowerCase() === method.toLowerCase());
+      return {
+        found: ms.length > 0,
+        class: cls.name,
+        plugin: cls.plugin,
+        methods: ms.length ? ms : undefined,
+        similar: ms.length ? undefined : methods.filter((m) => m.name.toLowerCase().includes(method.toLowerCase())).map((m) => m.signature ?? m.name).slice(0, 15),
+        docUrl: cls.docUrl,
+      };
+    }
+    const max = a.maxMethods ?? 60;
+    return {
+      found: true,
+      class: cls.name,
+      plugin: cls.plugin,
+      pluginName: cls.pluginName,
+      ...(hit.toLowerCase() !== className.toLowerCase() ? { mappedFrom: className } : {}),
+      description: cls.description,
+      attributes: cls.attributes,
+      constructors: cls.constructors,
+      methods: methods.slice(0, max).map((m) => m.signature ?? `${cls.name}.${m.name}(${m.parameters ?? ""}): ${m.returnType ?? "void"}`),
+      ...(methods.length > max ? { moreMethods: methods.length - max } : {}),
+      docUrl: cls.docUrl,
+    };
+  })
+);
+
+server.registerTool(
+  "vro_check_script",
+  {
+    description:
+      "Check an Orchestrator script without saving it: plain ES5 (Rhino) syntax, and every call on a known class or typed variable against modernvroapi.in (class exists, method exists, argument count). Give the variable types (inputs/attributes) so calls on them are checked too.",
+    inputSchema: {
+      script: z.string(),
+      variables: z.record(z.string(), z.string()).optional().describe("Variable name -> Orchestrator type, e.g. {vm: 'VC:VirtualMachine', host: 'REST:RESTHost'}"),
+    },
+    annotations: { readOnlyHint: true },
+  },
+  tool(async (a: { script: string; variables?: Record<string, string> }) => mergeChecks([await safeCheck(a.script, a.variables ?? {})], false))
+);
+
+// ---- packages of what was pushed
+
+const PACKAGE_NAME = /^com\.[a-z0-9]+(\.[a-z0-9]+)+$/;
+
+server.registerTool(
+  "vro_tracked_changes",
+  {
+    description:
+      "Show (or clear) the workflows and actions saved through this MCP since the last vro_build_package. These are what vro_build_package puts into the package by default.",
+    inputSchema: {
+      clear: z.boolean().optional().describe("Forget all tracked items"),
+      remove: z.array(z.string()).optional().describe("Forget only these ids"),
+    },
+  },
+  tool(async (a: { clear?: boolean; remove?: string[] }) => {
+    if (a.clear) changes.clear();
+    else if (a.remove?.length) changes.clear(a.remove);
+    const list = changes.list();
+    return { host: cfg.url, total: list.length, items: list };
+  })
+);
+
+server.registerTool(
+  "vro_build_package",
+  {
+    description:
+      "Create (or update) an Orchestrator package with what was pushed through this MCP, then export it as a .package file to download and open in vRO Peekage. By default it takes every workflow and action saved since the last build (see vro_tracked_changes); add more with the include lists. Package names follow com.<cust>.<scope> (e.g. com.mbcom.onboarding); the file is named <package>_v<version>_<yyyymmdd>.package. Workflows bring their referenced actions only if listed or tracked, so keep tracked items together.",
+    inputSchema: {
+      packageName: z.string().describe("e.g. com.mbcom.onboarding"),
+      version: z.string().optional().describe("Package version for the file name (default 1.0.0)"),
+      description: z.string().optional(),
+      useTracked: z.boolean().optional().describe("Include the tracked workflows/actions (default true)"),
+      workflows: z.array(z.string()).optional().describe("Extra workflow ids or exact names"),
+      actions: z.array(z.string()).optional().describe("Extra actions as module/name"),
+      configurations: z.array(z.string()).optional().describe("Extra configuration element ids"),
+      resources: z.array(z.string()).optional().describe("Extra resource element ids"),
+      outDir: z.string().optional().describe("Default: VRO_DOWNLOAD_DIR, else ~/Downloads/vro"),
+      includeSecureStrings: z.boolean().optional().describe("Export SecureString values (default false)"),
+      clearTracked: z.boolean().optional().describe("Forget the tracked items once the package is exported (default true)"),
+      dryRun: z.boolean().optional().describe("Only show what would go into the package"),
+    },
+  },
+  tool(async (a: any) => {
+    const pkg = String(a.packageName).trim();
+    const warnings: string[] = [];
+    if (!PACKAGE_NAME.test(pkg)) warnings.push(`"${pkg}" doesn't follow com.<cust>.<scope> (lower case, dot separated).`);
+    const version = String(a.version ?? "1.0.0").trim();
+    if (!/^\d+\.\d+\.\d+$/.test(version)) throw new Error(`version must be x.y.z (got "${version}")`);
+
+    type Item = { kind: ChangeKind; id: string; name: string };
+    const items: Item[] = [];
+    const tracked = a.useTracked === false ? [] : changes.list();
+    for (const t of tracked) items.push({ kind: t.kind, id: t.id, name: t.name });
+    for (const w of a.workflows ?? []) {
+      const id = await resolveWorkflowId(w);
+      items.push({ kind: "workflow", id, name: w });
+    }
+    for (const ref of a.actions ?? []) {
+      const act = await getAction(ref);
+      items.push({ kind: "action", id: act.id, name: `${act.module}/${act.name}` });
+    }
+    for (const id of a.configurations ?? []) items.push({ kind: "configuration", id, name: id });
+    for (const id of a.resources ?? []) items.push({ kind: "resource", id, name: id });
+    const unique = items.filter((x, i) => items.findIndex((y) => y.kind === x.kind && y.id === x.id) === i);
+    if (!unique.length) throw new Error("Nothing to package: no tracked changes and no include lists. Save workflows/actions through the MCP first, or list them explicitly.");
+
+    const fileName = `${pkg}_v${version}_${ymd()}.package`;
+    if (a.dryRun) return { package: pkg, fileName, items: unique, warnings };
+
+    // 1. make sure the package exists
+    const list = await vro.request("GET", "/packages");
+    const existsAlready = JSON.stringify(list.body ?? "").includes(`"${pkg}"`);
+    if (!existsAlready) {
+      await vro.call("PUT", `/packages/${enc(pkg)}`, { body: { description: a.description ?? "" } });
+    } else if (a.description) {
+      await vro.request("PATCH", `/packages/${enc(pkg)}`, { body: { name: pkg, description: a.description } });
+    }
+
+    // 2. add every element
+    const added: Item[] = [];
+    const failed: (Item & { error: string })[] = [];
+    for (const it of unique) {
+      let path: string;
+      if (it.kind === "workflow") path = `/packages/${enc(pkg)}/workflow/${enc(it.id)}`;
+      else if (it.kind === "action") {
+        const slash = it.name.lastIndexOf("/");
+        path = `/packages/${enc(pkg)}/action/${enc(it.name.slice(0, slash))}/${enc(it.name.slice(slash + 1))}`;
+      } else if (it.kind === "configuration") path = `/packages/${enc(pkg)}/configuration/${enc(it.id)}`;
+      else path = `/packages/${enc(pkg)}/resource/${enc(it.id)}`;
+      const r = await vro.request("POST", path);
+      if (r.ok) added.push(it);
+      else failed.push({ ...it, error: `HTTP ${r.status} ${typeof r.body === "string" ? r.body.slice(0, 200) : JSON.stringify(r.body)?.slice(0, 200)}` });
+    }
+    if (!added.length) throw new Error(`Package ${pkg} ${existsAlready ? "exists" : "was created"} but no element could be added: ${JSON.stringify(failed).slice(0, 800)}`);
+
+    // 3. export the .package file
+    const exported: any = await exportPackageFile({ packageName: pkg, outDir: a.outDir, fileName, includeSecureStrings: a.includeSecureStrings });
+    if (a.clearTracked !== false) changes.clear(added.map((x) => x.id));
+    return {
+      package: pkg,
+      created: !existsAlready,
+      added,
+      ...(failed.length ? { failed } : {}),
+      ...(warnings.length ? { warnings } : {}),
+      file: exported.savedTo,
+      bytes: exported.bytes,
+      contents: exported.contents,
+      next: "Download the file and open it in vRO Peekage (https://vro-peekage.vercel.app) to read every workflow, action and script.",
+    };
   })
 );
 

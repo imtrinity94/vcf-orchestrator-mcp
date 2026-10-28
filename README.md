@@ -65,7 +65,11 @@ The server renews its token by itself, so you never paste tokens: [Token Refresh
 | `vro_set_versions` | Set or bump versions of actions and workflows |
 | `vro_delete_workflow` | Delete a workflow |
 | `vro_export_package` | Download a package as a real `.package` file, ready for backup, import elsewhere or [vRO Peekage](https://vro-peekage.vercel.app) |
+| `vro_sdk_lookup`, `vro_check_script` | Look up real classes, methods and signatures on [modernvroapi.in](https://modernvroapi.in), and check a script for ES5 and correct API use |
+| `vro_tracked_changes`, `vro_build_package` | Remember every workflow and action pushed through the MCP, then put them in a package and export the `.package` file for [vRO Peekage](https://vro-peekage.vercel.app) |
 | `vro_api_search`, `vro_api_describe`, `vro_api_call` | Reach the full Orchestrator REST API (303 operations) |
+
+**The vRO AI dev loop:** Claude looks up the right classes on modernvroapi.in, writes ES5 code, saves it (every save is checked against modernvroapi.in and the issues come back right away), tests it, and finally builds a package of everything it pushed so you can open it in vRO Peekage.
 
 Parameters for each: [Tools Reference](https://github.com/imtrinity94/vcf-orchestrator-mcp/blob/main/docs/Tools-Reference.md).
 

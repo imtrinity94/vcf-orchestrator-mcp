@@ -31,6 +31,11 @@ export interface Config {
   downloadDir?: string;
   timeoutMs: number;
   scratchModule: string;
+  /** modernvroapi.in JSON API used to check scripts against real classes and methods */
+  apiRefUrl: string;
+  apiRefEnabled: boolean;
+  /** Where the list of objects saved through the MCP (for vro_build_package) is kept */
+  changesFile?: string;
 }
 
 function bool(v: string | undefined, dflt: boolean): boolean {
@@ -86,5 +91,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     downloadDir: env.VRO_DOWNLOAD_DIR ? path.resolve(env.VRO_DOWNLOAD_DIR.replace(/^~(?=$|[\\/])/, os.homedir())) : undefined,
     timeoutMs: Number(env.VRO_TIMEOUT_MS ?? 60000),
     scratchModule: env.VRO_SCRATCH_MODULE ?? "com.mcp.scratch",
+    apiRefUrl: trimSlash(env.VRO_APIREF_URL ?? "https://modernvroapi.in/api/v1"),
+    apiRefEnabled: bool(env.VRO_APIREF, true),
+    changesFile: env.VRO_CHANGES_FILE ? path.resolve(env.VRO_CHANGES_FILE.replace(/^~(?=$|[\\/])/, os.homedir())) : undefined,
   };
 }
